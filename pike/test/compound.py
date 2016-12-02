@@ -52,15 +52,45 @@ class CompoundTest(pike.test.PikeTest):
         smb_req2 = chan.request(nb_req, obj=tree)
         create_req = pike.smb2.CreateRequest(smb_req1)
         close_req = pike.smb2.CloseRequest(smb_req2)
-        
+
         create_req.name = 'hello.txt'
         create_req.desired_access = pike.smb2.GENERIC_READ | pike.smb2.GENERIC_WRITE
         create_req.file_attributes = pike.smb2.FILE_ATTRIBUTE_NORMAL
         create_req.create_disposition = pike.smb2.FILE_OPEN_IF
-        
+
         max_req = pike.smb2.MaximalAccessRequest(create_req)
-        
+
         close_req.file_id = pike.smb2.RELATED_FID
         smb_req2.flags |= pike.smb2.SMB2_FLAGS_RELATED_OPERATIONS
-        
+
         chan.connection.transceive(nb_req)
+
+    def test_create_read(self):
+        fname = "compound_read.txt"
+        buf = "writing writing writing"
+        chan, tree = self.tree_connect()
+        fh = chan.create(tree, fname).result()
+        chan.write(fh, 0, buf)
+        chan.close(fh)
+
+        # Manually assemble a chained request
+        nb_req = chan.frame()
+        smb_req1 = chan.request(nb_req, obj=tree)
+        smb_req2 = chan.request(nb_req, obj=tree)
+        create_req = pike.smb2.CreateRequest(smb_req1)
+        read_req = pike.smb2.ReadRequest(smb_req2)
+
+        create_req.name = fname
+        create_req.desired_access = pike.smb2.GENERIC_READ
+        create_req.file_attributes = pike.smb2.FILE_ATTRIBUTE_NORMAL
+        create_req.create_disposition = pike.smb2.FILE_OPEN
+
+        read_req.file_id = pike.smb2.RELATED_FID
+        read_req.length = len(buf)
+        smb_req2.flags |= pike.smb2.SMB2_FLAGS_RELATED_OPERATIONS
+
+        responses = chan.connection.transceive(nb_req)
+        fh = pike.model.Open(tree, responses[0])
+        for r in responses:
+            print(r)
+        chan.close(fh)
