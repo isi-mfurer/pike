@@ -67,10 +67,13 @@ class CompoundTest(pike.test.PikeTest):
 
     def test_create_read(self):
         fname = "compound_read.txt"
-        buf = "writing writing writing"
+        buf = "\0\1\2\3\4\5\6\7"*784*4
+        buflen = len(buf)
+        filelen = buflen*32
         chan, tree = self.tree_connect()
         fh = chan.create(tree, fname).result()
-        chan.write(fh, 0, buf)
+        for ix in xrange(32):
+            chan.write(fh, buflen*ix, buf)
         chan.close(fh)
 
         # Manually assemble a chained request
@@ -86,11 +89,47 @@ class CompoundTest(pike.test.PikeTest):
         create_req.create_disposition = pike.smb2.FILE_OPEN
 
         read_req.file_id = pike.smb2.RELATED_FID
-        read_req.length = len(buf)
+        read_req.length = filelen
         smb_req2.flags |= pike.smb2.SMB2_FLAGS_RELATED_OPERATIONS
 
         responses = chan.connection.transceive(nb_req)
         fh = pike.model.Open(tree, responses[0])
-        for r in responses:
-            print(r)
+        chan.close(fh)
+
+    def test_create_read_read(self):
+        fname = "compound_read_read.txt"
+        # 32*128 seems to be around the length that crashes the server
+        buf = "\0\1\2\3\4\5\6\7"*4*128
+        buflen = len(buf)
+        filelen = buflen*32
+        chan, tree = self.tree_connect()
+        fh = chan.create(tree, fname).result()
+        for ix in xrange(32):
+            chan.write(fh, buflen*ix, buf)
+        chan.close(fh)
+
+        # Manually assemble a chained request
+        nb_req = chan.frame()
+        smb_req1 = chan.request(nb_req, obj=tree)
+        smb_req2 = chan.request(nb_req, obj=tree)
+        smb_req3 = chan.request(nb_req, obj=tree)
+        create_req = pike.smb2.CreateRequest(smb_req1)
+        read_req = pike.smb2.ReadRequest(smb_req2)
+        read_req3 = pike.smb2.ReadRequest(smb_req3)
+
+        create_req.name = fname
+        create_req.desired_access = pike.smb2.GENERIC_READ
+        create_req.file_attributes = pike.smb2.FILE_ATTRIBUTE_NORMAL
+        create_req.create_disposition = pike.smb2.FILE_OPEN
+
+        read_req.file_id = pike.smb2.RELATED_FID
+        read_req.length = filelen
+        smb_req2.flags |= pike.smb2.SMB2_FLAGS_RELATED_OPERATIONS
+
+        read_req3.file_id = pike.smb2.RELATED_FID
+        read_req3.length = filelen
+        smb_req3.flags |= pike.smb2.SMB2_FLAGS_RELATED_OPERATIONS
+
+        responses = chan.connection.transceive(nb_req)
+        fh = pike.model.Open(tree, responses[0])
         chan.close(fh)
