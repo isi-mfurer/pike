@@ -90,3 +90,11 @@ Note that you will probably need to specify the server by fully-qualified
 hostname in order for Kerberos to figure out which ticket to use.  If you
 get errors during session setup when using an IP address, this is probably
 the reason.
+
+Regenerating Documentation
+==========================
+
+# install epydoc: pip install epydoc
+# generate html based documentation to a temp dir: epydoc --html pike -o /tmp/pikeapi
+# checkout gh-pages branch: git checkout gh-pages
+# overwrite documentation: cp -r /tmp/pikeapi api
