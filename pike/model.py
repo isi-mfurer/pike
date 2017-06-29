@@ -1218,9 +1218,6 @@ class Channel(object):
         smb_req = self.request()
         cancel_req = smb2.Cancel(smb_req)
 
-        # Don't bother trying to sign cancel
-        smb_req.flags &= ~smb2.SMB2_FLAGS_SIGNED
-
         # Use async id to cancel if applicable:
         if future.interim_response is not None:
             smb_req.async_id = future.interim_response.async_id
