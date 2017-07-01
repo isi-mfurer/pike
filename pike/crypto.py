@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2016, EMC Corporation
+# Copyright (c) 2017, Dell Technologies
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -33,6 +33,9 @@
 #
 # Authors: Masen Furer (masen.furer@dell.com)
 #
+"""
+SMB3 encryption support
+"""
 import core
 import digest
 import smb2
@@ -44,6 +47,19 @@ from Cryptodome.Cipher import AES
 
 
 def pad_right(value, length, byte='\0'):
+    """
+    pad or truncate C{value} to C{length} bytes
+
+    @type value: array.array
+    @param value: the array to be padded
+    @type length: integer
+    @param length: the desired final length of the array
+    @type byte: single character (string)
+    @param byte: the byte value to pad with defaults to \0
+    @rtype: array.array
+    @return: C{length} byte copy of C{value} either truncated or filled to the
+        right with the value of C{byte}
+    """
     if len(value) > length:
         value = value[:length]
     elif len(value) < 16:
@@ -52,16 +68,25 @@ def pad_right(value, length, byte='\0'):
 
 
 class CipherMismatch(Exception):
+    """
+    Raised when the client and server do not have any ciphers in common
+    """
     pass
 
 
 class Ciphers(core.ValueEnum):
+    """
+    Enumeration of supported ciphers
+
+    [MS-SMB2] 2.2.3.1.2 SMB2_ENCRYPTION_CAPABILITIES
+    """
     SMB2_NONE_CIPHER = 0x0000
     SMB2_AES_128_CCM = 0x0001
     SMB2_AES_128_GCM = 0x0002
 
 Ciphers.import_items(globals())
 
+# mapping between the protocol cipher values tuple of (AES mode, nonce_length)
 cipher_map = {
         SMB2_AES_128_CCM: (AES.MODE_CCM, 11),
         SMB2_AES_128_GCM: (AES.MODE_GCM, 12)
@@ -69,6 +94,13 @@ cipher_map = {
 
 
 class EncryptionCapabilities(core.Frame):
+    """
+    [MS-SMB2] 2.2.3.1.2 SMB2_ENCRYPTION_CAPABILITIES
+
+    @ivar ciphers: list of ciphers selected from L{Ciphers}
+    @ivar ciphers_count: number of ciphers in the list. Set to None for auto
+        calculation based on C{ciphers} list.
+    """
     context_type = smb2.SMB2_ENCRYPTION_CAPABILITIES
 
     def __init__(self):
@@ -90,6 +122,10 @@ class EncryptionCapabilities(core.Frame):
 
 class EncryptionCapabilitiesRequest(smb2.NegotiateRequestContext,
                                     EncryptionCapabilities):
+    """
+    EncryptionCapabilities frame wrapped in a NegotiateRequestContext for
+    sending on the wire
+    """
     def __init__(self, parent):
         smb2.NegotiateRequestContext.__init__(self, parent)
         EncryptionCapabilities.__init__(self)
@@ -97,6 +133,10 @@ class EncryptionCapabilitiesRequest(smb2.NegotiateRequestContext,
 
 class EncryptionCapabilitiesResponse(smb2.NegotiateResponseContext,
                                      EncryptionCapabilities):
+    """
+    EncryptionCapabilities frame wrapped in a NegotiateResponseContext for
+    receiving on the wire
+    """
     def __init__(self, parent):
         smb2.NegotiateResponseContext.__init__(self, parent)
         EncryptionCapabilities.__init__(self)
@@ -104,15 +144,38 @@ class EncryptionCapabilitiesResponse(smb2.NegotiateResponseContext,
 
 class TransformHeader(core.Frame):
     """
-    TransformHeader is designed to be a transparent slip attached to a Netbios
-    frame object (specified as parent). During serialization, if a Netbios frame
-    contains an attribute "transform", then that object's encode method will be
-    called instead of each child frames' encode method. This frame is responsible
-    for both encrypting and decrypting Smb2 frames according to an attached
-    encryption context.
+    [MS-SMB2] 2.2.41 SMB2 TRANSFORM_HEADER
 
-    If the encryption_context is not explicitly specified, then it will be looked
-    up based on session_id from the parent Netbios frame's connection reference
+    TransformHeader is designed to be a transparent slip attached to a
+    L{Netbios} frame object (specified as parent). During serialization, if a
+    L{Netbios} frame contains an attribute C{transform}, then that object's
+    encode method will be called instead of each child frames' encode method.
+    This frame is responsible for both encrypting and decrypting Smb2 frames
+    according to an attached encryption context.
+
+    If the C{encryption_context} is not explicitly specified, then it will be
+    looked up based on C{session_id} from the parent L{Netbios} frame's
+    connection reference
+
+    @ivar protocol_id: the magic number indicating that this packet
+        has been transformed
+    @ivar signature: The 16-byte signature of the encrypted message generated
+        by using C{encryption_context.encrypt(...)}
+    @ivar nonce: An implementation-specific value assigned for every encrypted
+        message. This MUST NOT be reused for all encrypted messages within a
+        session. This value is always overwritten in the encryption routine
+    @ivar wire_nonce: if wire_nonce is specified, it will be sent on the wire
+        instead of the calculated nonce value (for negative testing)
+    @ivar original_message_size: specifies the size of the message before being
+        transformed
+    @ivar flags: should always be set to 0x1
+    @ivar session_id: Uniquely identifies the established session for the
+        command.
+    @ivar encryption_context: L{EncryptionContext} to be used for performing
+        the encryption or decryption of the message buffer. If None, will be
+        looked up based on the C{session_id}
+    @ivar additional_authenticated_data_buf: used internally to calculate the
+        signature
     """
     def __init__(self, parent):
         core.Frame.__init__(self, parent)
@@ -271,7 +334,9 @@ class CryptoKeys311(object):
 class EncryptionContext(object):
     """
     Encapsulates all information needed to encrypt and decrypt messages.
-    This context is attached to an SMB Session object
+    This context is associated with an SMB L{Session} object
+
+    @ivar keys: L{CryptoKeys300} or L{CryptoKeys311} object
     """
     def __init__(self, keys, ciphers):
         self.keys = keys
@@ -286,6 +351,18 @@ class EncryptionContext(object):
                     "server: {0}".format(ciphers))
 
     def encrypt(self, plaintext, authenticated_data, nonce):
+        """
+        perform encryption according to the keys in C{self.keys}
+
+        @type plaintext: array.array
+        @type authenticated_data: array.array
+        @param authenticated_data: extra data from header used in HMAC
+            calculation
+        @type nonce: array.array
+        @param nonce: randomly generated nonce should be used for each message
+        @rtype: tuple of (array.array, array.array)
+        @return: (ciphertext, hmac signature)
+        """
         enc_cipher = AES.new(self.keys.encryption,
                              self.aes_mode,
                              nonce=nonce[:self.nonce_length].tostring())
@@ -294,6 +371,21 @@ class EncryptionContext(object):
         return array.array('B', ciphertext), array.array('B', signature)
 
     def decrypt(self, ciphertext, signature, authenticated_data, nonce):
+        """
+        perform decryption according to the keys in C{self.keys} and verify
+        signature matches
+
+        @type ciphertext: array.array
+        @type signature: array.array
+        @param signature: hmac signature received in the header
+        @type authenticated_data: array.array
+        @param authenticated_data: extra data from header used in HMAC
+            calculation
+        @type nonce: array.array
+        @param nonce: randomly generated nonce received from sender
+        @rtype: array.array
+        @return: plaintext of message
+        """
         dec_cipher = AES.new(self.keys.decryption,
                              self.aes_mode,
                              nonce=nonce[:self.nonce_length].tostring())
