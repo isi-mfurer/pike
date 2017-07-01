@@ -212,36 +212,99 @@ class Cursor(object):
         self.offset += size
 
     def encode_uint8be(self, val):
+        """
+        Encode unsigned 8-bit integer at current position and
+        advance cursor by 1 byte
+
+        @type val: integer
+        """
         self.encode_struct('>B', val)
 
     def encode_uint16be(self, val):
+        """
+        Encode unsigned 16-bit integer big endian at current position and
+        advance cursor by 2 bytes
+
+        @type val: integer
+        """
         self.encode_struct('>H', val)
 
     def encode_uint32be(self, val):
+        """
+        Encode unsigned 32-bit integer big endian at current position and
+        advance cursor by 4 bytes
+
+        @type val: integer
+        """
         self.encode_struct('>L', val)
 
     def encode_uint64be(self, val):
+        """
+        Encode unsigned 64-bit integer big endian at current position and
+        advance cursor by 8 bytes
+
+        @type val: integer
+        """
         self.encode_struct('>Q', val)
 
     def encode_uint8le(self, val):
+        """
+        Encode unsigned 8-bit integer at current position and
+        advance cursor by 1 byte
+
+        @type val: integer
+        """
         self.encode_struct('<B', val)
 
     def encode_uint16le(self, val):
+        """
+        Encode unsigned 16-bit integer little endian at current position and
+        advance cursor by 2 bytes
+
+        @type val: integer
+        """
         self.encode_struct('<H', val)
 
     def encode_uint32le(self, val):
+        """
+        Encode unsigned 32-bit integer little endian at current position and
+        advance cursor by 4 bytes
+
+        @type val: integer
+        """
         self.encode_struct('<L', val)
 
     def encode_uint64le(self, val):
+        """
+        Encode unsigned 64-bit integer little endian at current position and
+        advance cursor by 8 bytes
+
+        @type val: integer
+        """
         self.encode_struct('<Q', val)
 
     def encode_int64le(self, val):
+        """
+        Encode signed 64-bit integer little endian at current position and
+        advance cursor by 8 bytes
+
+        @type val: integer
+        """
         self.encode_struct('<q', val)
 
     def encode_utf16le(self, val):
+        """
+        Encode UTF-16 string at current position
+
+        @type val: string
+        """
         self.encode_bytes(unicode(val).encode('utf-16le'))
 
     def trunc(self):
+        """
+        XXX: truncate space space in the underlying array past the end of the
+        current cursor position
+        """
         self._expand_to(self.offset)
         del self.array[self.offset:]
 
@@ -253,6 +316,14 @@ class Cursor(object):
             raise BufferOverrun()
 
     def decode_bytes(self, size):
+        """
+        Decode raw bytes at the current position and advance cursor by C{size}
+
+        @type size: integer
+        @param size: number of bytes to decode
+        @rtype: array.array
+        @return: array of bytes
+        """
         self._check_bounds(self.offset, self.offset + size)
         result = self.array[self.offset:self.offset+size]
         self.offset += size
@@ -266,45 +337,137 @@ class Cursor(object):
         return result
 
     def decode_uint8be(self):
+        """
+        Decode unsigned 8-bit integer at current position and
+        advance cursor by 1 byte
+
+        @rtype: integer
+        """
         return self.decode_struct('>B')[0]
 
     def decode_uint16be(self):
+        """
+        Decode unsigned 16-bit integer big endian at current position and
+        advance cursor by 2 bytes
+
+        @rtype: integer
+        """
         return self.decode_struct('>H')[0]
 
     def decode_uint32be(self):
+        """
+        Decode unsigned 32-bit integer big endian at current position and
+        advance cursor by 4 bytes
+
+        @rtype: integer
+        """
         return self.decode_struct('>L')[0]
 
     def decode_uint64be(self):
+        """
+        Decode unsigned 64-bit integer big endian at current position and
+        advance cursor by 8 bytes
+
+        @rtype: integer
+        """
         return self.decode_struct('>Q')[0]
 
     def decode_uint8le(self):
+        """
+        Decode unsigned 8-bit integer at current position and
+        advance cursor by 1 byte
+
+        @rtype: integer
+        """
         return self.decode_struct('<B')[0]
 
     def decode_uint16le(self):
+        """
+        Decode unsigned 16-bit integer little endian at current position and
+        advance cursor by 2 bytes
+
+        @rtype: integer
+        """
         return self.decode_struct('<H')[0]
 
     def decode_uint32le(self):
+        """
+        Decode unsigned 32-bit integer little endian at current position and
+        advance cursor by 4 bytes
+
+        @rtype: integer
+        """
         return self.decode_struct('<L')[0]
 
     def decode_int32le(self):
+        """
+        Decode signed 32-bit integer little endian at current position and
+        advance cursor by 4 bytes
+
+        @rtype: integer
+        """
         return self.decode_struct('<l')[0]
 
     def decode_uint64le(self):
+        """
+        Decode unsigned 64-bit integer little endian at current position and
+        advance cursor by 8 bytes
+
+        @rtype: integer
+        """
         return self.decode_struct('<Q')[0]
 
     def decode_int64le(self):
+        """
+        Decode signed 64-bit integer little endian at current position and
+        advance cursor by 8 bytes
+
+        @rtype: integer
+        """
         return self.decode_struct('<q')[0]
 
     def decode_utf16le(self, size):
+        """
+        Decode C{size} bytes encoded in UTF-16.
+
+        Note: UTF-16 characters are 2 bytes each, therefore the size should be
+        equal to string_length * 2
+
+        @type size: integer
+        @param size: number of bytes to decode
+        @rtype: unicode string
+        """
         return self.decode_bytes(size).tostring().decode('utf-16le')
 
     def align(self, base, val):
+        """
+        advance the cursor such that the new position is an exact multiple of
+        C{val} from the position of C{base}.
+
+        @type base: L{Cursor}
+        @param base: a L{Cursor} sharing the same underlying array as this
+            cursor. C{base} is usually the start of the structure being encoded
+        @type val: integer
+        @param val: advance the cursor by C{val} bytes or less
+        """
         assert self.array is base.array
         rem = (self.offset - base.offset) % val
         if rem != 0:
             self.offset += val - rem
 
     def seekto(self, o, lowerbound = None, upperbound = None):
+        """
+        advance the cursor to the position of C{o}
+
+        @type o: L{Cursor}
+        @param o: a L{Cursor} sharing the same underlying array as this cursor
+        @type lowerbound: L{Cursor} or None
+        @param lowerbound: attempting to set the offset below this value will
+            raise BufferOverrun exception
+        @type upperbound: L{Cursor} or None
+        @param upperbound: attempting to set the offset above this value will
+            raise BufferOverrun exception
+        """
         assert self.array is o.array
         if (lowerbound is not None and o < lowerbound) or \
            (upperbound is not None and o > upperbound):
@@ -312,9 +475,25 @@ class Cursor(object):
         self.offset = o.offset
 
     def advanceto(self, o, bound = None):
+        """
+        shorthand for L{Cursor.seekto} but only specifying an upperbound
+
+        @type o: L{Cursor}
+        @type bound: L{Cursor}
+        @param bound: attempting to set the offset above this value will
+            raise BufferOverrun exception
+        """
         self.seekto(o, self, bound)
 
     def reverseto(self, o, bound = None):
+        """
+        shorthand for L{Cursor.seekto} but only specifying a lowerbound
+
+        @type o: L{Cursor}
+        @type bound: L{Cursor}
+        @param bound: attempting to set the offset below this value will
+            raise BufferOverrun exception
+        """
         self.seekto(o, bound, self)
 
     @property
@@ -328,6 +507,19 @@ class Cursor(object):
         return Cursor(self.array, upper, self.bounds)
 
     def bounded(self, lower, upper):
+        """
+        helper method around a contextmanager for temporarily enforcing lower
+        and upper bounds on a cursor::
+            
+            with cur.bounded(ctx_start, ctx_start + ctx_len):
+                next_entry_length = cur.decode_uint16le()
+                while next_entry_length > 0:
+                    entries.append(cur.decode_bytes(next_entry_length))
+                    next_entry_length = cur.decode_uint16le()
+
+        @type lower: L{Cursor} or integer
+        @type upper: L{Cursor} or integer
+        """
         # Allow cursors to be used as bounds (the preferred idiom)
         if isinstance(lower, Cursor):
             assert self.array is lower.array
@@ -642,6 +834,9 @@ class ValueEnum(Enum):
 
     Accessing SomeEnumClass.FOO will actually return a SomeEnumClass instance.
     Instances will return their symbolic names when str() is used.
+
+    @ivar permissive: boolean, if true casting an unrecognized value to this
+        enum class will raise ValueError
     """
 
     permissive = False
@@ -703,27 +898,27 @@ class Let(object):
     A Let allows for temporarily storing passed arguments in the _settings
     member of a target object for the duration of the contextmanager's scope
 
-    Implementation on a factory class
+    Implementation on a factory class::
 
-    class MyThingFactory(object):
-        def __init__(self):
-            self._settings = {}
-        def generate_thing(self):
-            # do something here
-            new_obj = Thing()
-            for k,v in self._settings.iteritems():
-                setattr(new_obj, k, v)
-            return new_obj
-        def let(self, **kwds):
-            return Let(self, kwds)
+        class MyThingFactory(object):
+            def __init__(self):
+                self._settings = {}
+            def generate_thing(self):
+                # do something here
+                new_obj = Thing()
+                for k,v in self._settings.iteritems():
+                    setattr(new_obj, k, v)
+                return new_obj
+            def let(self, **kwds):
+                return Let(self, kwds)
 
     Calling code that wants to temporarily customize the Thing objects that are
-    returned by the factory:
+    returned by the factory::
 
-    fac = MyThingFactory()
-    with fac.let(this="that", foo="bar"):
-        a_thing = fac.generate_thing()
-        self.assertEqual(a_thing.this, "that")
+        fac = MyThingFactory()
+        with fac.let(this="that", foo="bar"):
+            a_thing = fac.generate_thing()
+            self.assertEqual(a_thing.this, "that")
     """
     def __init__(self, target, settings_dict):
         self.target = target
