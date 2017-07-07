@@ -25,11 +25,11 @@
 #
 # Module Name:
 #
-#        smb2.py
+#       smb2/__init__.py
 #
 # Abstract:
 #
-#        SMB2 support
+#       SMB2 protocol support
 #
 # Authors: Brian Koropoff (brian.koropoff@emc.com)
 #
@@ -46,11 +46,22 @@ This makes it simple to correlate the code with the spec while
 maintaining a clear visual distinction between values and types.
 """
 
+import pike.core as core
+import pike.nttime as nttime
+import pike.ntstatus as ntstatus
+
 import array
-import core
-import nttime
 import re
-import ntstatus
+
+
+class ResponseError(Exception):
+    """
+    Smb2 frame with unexpected status code is raised as exception
+    """
+    def __init__(self, response):
+        Exception.__init__(self, response.command, response.status)
+        self.response = response
+
 
 # Dialects constants
 class Dialect(core.ValueEnum):

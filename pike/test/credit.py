@@ -36,6 +36,7 @@
 
 import pike.model
 import pike.smb2
+import pike.smb2.connection
 import pike.test
 import array
 import random
@@ -100,11 +101,11 @@ class CreditTest(pike.test.PikeTest):
 
     # set the default credit request to 1 to make things more predictable
     def setUp(self):
-        self.prev_default_credit_request = pike.model.default_credit_request
-        pike.model.default_credit_request = 1
+        self.prev_default_credit_request = pike.smb2.connection.default_credit_request
+        pike.smb2.connection.default_credit_request = 1
 
     def tearDown(self):
-        pike.model.default_credit_request = self.prev_default_credit_request
+        pike.smb2.connection.default_credit_request = self.prev_default_credit_request
 
     def generic_mc_write_mc_read(self, file_size, write_size, read_size):
         """
@@ -145,8 +146,8 @@ class CreditTest(pike.test.PikeTest):
 
         # calculate a reasonable expected number of credits
         # from negotiate, session_setup (x2), tree_connect, create (+16), close
-        exp_credits = starting_credits + ((pike.model.default_credit_request - 1) * 4) + 15
-        credit_request_per_op = pike.model.default_credit_request
+        exp_credits = starting_credits + ((pike.smb2.connection.default_credit_request - 1) * 4) + 15
+        credit_request_per_op = pike.smb2.connection.default_credit_request
         # from the series of write requests
         if write_credits_per_op > credit_request_per_op:
             credit_request_per_op = write_credits_per_op
@@ -268,15 +269,15 @@ class CreditTest(pike.test.PikeTest):
 
         # calculate a reasonable expected number of credits
         # from negotiate, session_setup (x2), tree_connect, create (+16), close
-        exp_credits = starting_credits + ((pike.model.default_credit_request - 1) * 4) + 15
-        credit_request_per_op = pike.model.default_credit_request
+        exp_credits = starting_credits + ((pike.smb2.connection.default_credit_request - 1) * 4) + 15
+        credit_request_per_op = pike.smb2.connection.default_credit_request
         # from the series of write requests
         if write_credits_per_op > credit_request_per_op:
             credit_request_per_op = write_credits_per_op
         exp_credits += write_chunks * (credit_request_per_op - write_credits_per_op)
         # potential extra write request
         if extra_write is not None:
-            credit_request_per_op = pike.model.default_credit_request
+            credit_request_per_op = pike.smb2.connection.default_credit_request
             if extra_write[1] > credit_request_per_op:
                 credit_request_per_op = extra_write[1]
             exp_credits += (credit_request_per_op - extra_write[1])

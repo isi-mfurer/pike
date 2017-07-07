@@ -33,6 +33,7 @@
 #
 # Authors: Masen Furer (masen.furer@dell.com)
 #
+import pike
 from errno import errorcode, EBADF, ECONNRESET, ENOTCONN, ESHUTDOWN, \
                   ECONNABORTED, EISCONN, EINPROGRESS, EALREADY, EWOULDBLOCK, \
                   EAGAIN
@@ -447,4 +448,6 @@ else:
 
 
 def loop(timeout=None, count=None):
+    if timeout is None:
+        timeout = pike.default_timeout
     poller.loop(timeout, count)

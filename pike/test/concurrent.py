@@ -33,6 +33,7 @@ import pike.model
 import pike.smb2 as smb2
 import pike.test
 import pike.transport
+from pike.smb2.session import SessionSetupContext
 
 import array
 import time
@@ -102,7 +103,7 @@ class ConnectScaleClient(object):
             self._internal_abort()
             return
         with self.client_future:
-            self.connection.SessionSetupContext(
+            SessionSetupContext(
                     self.connection,
                     self.creds).submit().then(
                             self.step_3_on_session_send_tree_connect)
@@ -240,7 +241,7 @@ class BFLGClient(object):
             self._internal_abort()
             return
         with self.client_future:
-            self.connection.SessionSetupContext(
+            SessionSetupContext(
                     self.connection,
                     self.creds).submit().then(
                             self.step_3_on_session_send_tree_connect)

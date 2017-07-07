@@ -37,14 +37,19 @@
 """
 Core Pike infrastructure
 """
+import pike
+import pike.transport as transport
 
 import array
-import struct
 import inspect
+import struct
+import time
+
 
 class BufferOverrun(Exception):
     """Buffer overrun exception"""
     pass
+
 
 class Cursor(object):
     """
@@ -738,3 +743,155 @@ class Let(object):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.target._settings = self.backup
+
+
+class Future(object):
+    """
+    Result of an asynchronous operation.
+
+    Futures represent the result of an operation that has not yet completed.
+    In Pike, they are most commonly used to track SMB2 request/response pairs,
+    but they can be used for any asynchronous operation.
+
+    The result of a future can be waited for synchronously by simply calling
+    L{Future.result}, or a notification callback can be set with L{Future.then}.
+
+    Futures implement the context manager interface so that they can be used
+    as the context for a with block.  If an exception is raised from the block,
+    it will automatically be set as the result of the future.
+
+    @ivar request: The request associated with the future, usually an SMB2 request frame.
+    @ivar response: The result of the future, usually an SMB2 response frame.
+    @ivar interim_response: The interim response, usually an SMB2 response frame.
+    @ivar traceback: The traceback of an exception result, if applicable.
+    """
+
+    def __init__(self, request=None):
+        """
+        Initialize future.
+
+        @param request: The request associated with the response.
+        """
+        self.request = request
+        self.interim_response = None
+        self.response = None
+        self.notify = []
+        self.traceback = None
+
+    def complete(self, response, traceback=None):
+        """
+        Completes the future with the given result.
+
+        Calling a future as a function is equivalent to calling this method.
+
+        @param response: The result of the future.
+        @param traceback: If response is an exception, an optional traceback
+        """
+        self.response = response
+        self.traceback = traceback
+        for notify in self.notify:
+            notify(self)
+
+    def interim(self, response):
+        """
+        Set interim response.
+
+        @param response: The interim response.
+        """
+        self.interim_response = response
+
+    def has_response(self):
+        return self.response is not None
+
+    def has_interim_response(self):
+        return self.response is not None or self.interim_response is not None
+
+    def wait(self, timeout=None):
+        """
+        Wait for future result to become available.
+
+        @param timeout: The time in seconds before giving up and raising TimeoutError
+        """
+        if timeout is None:
+            timeout = pike.default_timeout
+        deadline = time.time() + timeout
+        while not self.has_response():
+            now = time.time()
+            if now > deadline:
+                raise pike.TimeoutError('Timed out after %s seconds' % timeout)
+            transport.loop(timeout=deadline-now, count=1)
+
+        return self
+
+    def wait_interim(self, timeout=None):
+        """
+        Wait for interim response or actual result to become available.
+
+        @param timeout: The time in seconds before giving up and raising TimeoutError
+        """
+        if timeout is None:
+            timeout = pike.default_timeout
+        deadline = time.time() + timeout
+        while not self.has_interim_response():
+            now = time.time()
+            if now > deadline:
+                raise pike.TimeoutError('Timed out after %s seconds' % timeout)
+            transport.loop(timeout=deadline-now, count=1)
+
+        return self
+
+    def result(self, timeout=None):
+        """
+        Return result of future.
+
+        If the result is not yet available, this function will wait for it.
+        If the result is an exception, this function will raise it instead of
+        returning it.
+
+        @param timeout: The time in seconds before giving up and raising TimeoutError
+        """
+        self.wait(timeout)
+
+        if isinstance(self.response, BaseException):
+            traceback = self.traceback
+            self.traceback = None
+            raise self.response, None, traceback
+        else:
+            return self.response
+
+    def then(self, notify):
+        """
+        Set notification function.
+
+        @param notify: A function which will be invoked with this future as a parameter
+                       when its result becomes available.  If it is already available,
+                       it will be called immediately.
+        """
+        if self.response is not None:
+            notify(self)
+        else:
+            self.notify.append(notify)
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is not None:
+            self.complete(exc_value, traceback)
+            return True
+
+    def __call__(self, *params, **kwparams):
+        self.complete(*params, **kwparams)
+
+class Events(ValueEnum):
+    """ Events used for callback functions """
+    EV_REQ_PRE_SERIALIZE = 0x1      # cb expects frame
+    EV_REQ_POST_SERIALIZE = 0x2     # cb expects frame
+    EV_REQ_PRE_SEND = 0x3           # cb expects a buffer to send
+    EV_REQ_POST_SEND = 0x4          # cb expects an integer of bytes sent
+    EV_RES_PRE_RECV = 0x5           # cb expects an integer of bytes to read
+    EV_RES_POST_RECV = 0x6          # cb expects a buffer that was read
+    EV_RES_PRE_DESERIALIZE = 0x7    # cb expects a complete buffer
+    EV_RES_POST_DESERIALIZE = 0x8   # cb expects a frame
+Events.import_items(globals())
+
