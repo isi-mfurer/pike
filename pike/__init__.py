@@ -14,4 +14,4 @@ __all__ = [
         'transport',
 ]
 __version_info__ = (0, 2, 17)
-__version__ = "{0}.{1}.{2}".format(*__version_info__)
+__version__ = "{0}.{1}.{2}rc2".format(*__version_info__)
