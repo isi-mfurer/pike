@@ -1741,6 +1741,22 @@ class Channel(object):
         ioctl_req.max_output_response = args[0]
         ioctl_req.flags |= smb2.SMB2_0_IOCTL_IS_FSCTL
 
+        return self.connection.transceive(smb_req.parent)[0]
+
+    def timeout_resiliency(self, file,timeout):
+
+        smb_req = self.request(obj=file.tree)
+        ioctl_req = smb2.IoctlRequest(smb_req)
+
+        vni_req = smb2.ExcuteTimeoutResiliencyRequest(ioctl_req)
+        ioctl_req.file_id = file.file_id
+        ioctl_req.max_output_response = 4096
+        ioctl_req.flags = smb2.SMB2_0_IOCTL_IS_FSCTL
+        vni_req.Timeout = timeout
+        vni_req.Reserved = 0
+        res = self.connection.transceive(smb_req.parent)[0]
+        return res
+
     def copychunk_request(self, source_file, target_file, chunks):
         """
         @param source_file: L{Open}

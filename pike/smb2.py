@@ -3257,6 +3257,17 @@ class SrvQueryfileSessionconn(IoctlInput):
     def  _encode(self, cur):
         pass
 
+class ExcuteTimeoutResiliencyRequest(IoctlInput):
+    ioctl_ctl_code = FSCTL_LMR_REQUEST_RESILIENCY
+
+    def __init__(self, parent):
+        IoctlInput.__init__(self, parent)
+        self.Timeout = None
+        self.Reserved = 0
+
+    def  _encode(self, cur):
+        cur.encode_uint32le(self.Timeout)
+        cur.encode_uint32le(self.Reserved)
 
 
 
@@ -3351,6 +3362,16 @@ class RequestResumeKeyResponse(IoctlOutput):
    def _decode(self, cur):
         self.resume_key = cur.decode_bytes(24)
         self.context_length = cur.decode_uint32le()
+
+class ExcuteTimeoutResiliencyResponse(IoctlOutput):
+
+    ioctl_ctl_code = FSCTL_LMR_REQUEST_RESILIENCY
+
+    def __init__(self, parent):
+        IoctlOutput.__init__(self, parent)
+
+    def _decode(self, cur):
+        pass
 
 
 class FormChannel(core.Frame):
