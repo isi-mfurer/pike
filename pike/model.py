@@ -1733,6 +1733,14 @@ class Channel(object):
 
         return self.connection.transceive(smb_req.parent)[0]
 
+    def queryfile_sessionconn(self, file,*args):
+        smb_req = self.request(obj=file.tree)
+        ioctl_req = smb2.IoctlRequest(smb_req)
+        queryfile_req = smb2.SrvQueryfileSessionconn(ioctl_req)
+        ioctl_req.file_id = file.file_id
+        ioctl_req.max_output_response = args[0]
+        ioctl_req.flags |= smb2.SMB2_0_IOCTL_IS_FSCTL
+
     def copychunk_request(self, source_file, target_file, chunks):
         """
         @param source_file: L{Open}

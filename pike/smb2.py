@@ -51,6 +51,8 @@ import core
 import nttime
 import re
 import ntstatus
+from ipaddress import IPv4Address
+from ipaddress import IPv6Address
 
 # Dialects constants
 class Dialect(core.ValueEnum):
@@ -3106,6 +3108,7 @@ class IoctlCode(core.ValueEnum):
     FSCTL_VALIDATE_NEGOTIATE_INFO      = 0x00140204
     FSCTL_SET_ZERO_DATA                = 0x000980C8
     FSCTL_SET_SPARSE                   = 0x000900C4
+    FSCTL_SRV_QUERIYFILE_SESSION       = 0x001424b8
 
 IoctlCode.import_items(globals())
 
@@ -3244,6 +3247,19 @@ class RequestResumeKeyRequest(IoctlInput):
     def  _encode(self, cur):
         pass
 
+class SrvQueryfileSessionconn(IoctlInput):
+    ioctl_ctl_code = FSCTL_SRV_QUERIYFILE_SESSION
+
+    def __init__(self, parent):
+        IoctlInput.__init__(self, parent)
+        parent.ioctl_input = self
+
+    def  _encode(self, cur):
+        pass
+
+
+
+
 class CopyChunkCopyRequest(IoctlInput):
     ioctl_ctl_code = FSCTL_SRV_COPYCHUNK
 
@@ -3335,6 +3351,82 @@ class RequestResumeKeyResponse(IoctlOutput):
    def _decode(self, cur):
         self.resume_key = cur.decode_bytes(24)
         self.context_length = cur.decode_uint32le()
+
+
+class FormChannel(core.Frame):
+    def __init__(self, parent=None):
+        super(FormChannel, self).__init__(parent)
+        if parent is not None:
+            parent.append(self)
+
+    def decode_v6(self,cur):
+        self.ClientPort = cur.decode_uint16be()
+
+        self.ClientFlowinfo = cur.decode_uint16be()
+        self.ClientScopeid = cur.decode_uint16be()
+
+        # hex
+        c6 = '%016x%016x' % (cur.decode_struct('>Q')[0], cur.decode_struct('>Q')[0])
+        c61 = IPv6Address(int(c6, 16))
+        self.ClientAddress = c61.compressed
+
+        cur.decode_bytes(104)
+        self.ServerFamily = cur.decode_uint16le()
+        self.ServerPort = cur.decode_uint16be()
+        self.ServerFlowinfo = cur.decode_uint16be()
+        self.ServerScopeid = cur.decode_uint16be()
+        s6 = '%016x%016x' % (cur.decode_struct('>Q')[0], cur.decode_struct('>Q')[0])
+        s61 = IPv6Address(int(s6, 16))
+        self.ServerAddress = s61.compressed
+
+
+    def decode_v4(self,cur):
+        self.ClientPort = cur.decode_uint16be()
+
+        c4 = [cur.decode_uint8le() for _ in range(4)]
+        self.ClientAddress =  IPv4Address(u'{}.{}.{}.{}'.format(*c4)).compressed
+        cur.decode_bytes(120)
+
+        self.ServerFamily = cur.decode_uint16le()
+        self.ServerPort = cur.decode_uint16be()
+
+        s4 = [cur.decode_uint8le() for _ in range(4)]
+        self.ServerAddress = IPv4Address(u'{}.{}.{}.{}'.format(*s4)).compressed
+
+
+    def _decode(self,cur):
+        self.NextEntry = cur.decode_uint32le()
+        self.Zid = cur.decode_uint32le()
+        self.ClientFamily = cur.decode_uint16le()
+        if self.ClientFamily == 23:
+            self.decode_v6(cur)
+        elif self.ClientFamily == 2:
+            self.decode_v4(cur)
+        else:
+            print 'something obout ip version error'
+
+class SrvQueryfileSessionconnResponse(IoctlOutput):
+
+   ioctl_ctl_code = FSCTL_SRV_QUERIYFILE_SESSION
+
+   def __init__(self, parent):
+        IoctlOutput.__init__(self, parent)
+        self._entries = []
+
+   def _children(self):
+       return self._entries
+
+   def append(self, e):
+       self._entries.append(e)
+
+   def _decode(self, cur):
+        FormChannel(self).decode(cur)
+        a = self.start
+        while self._entries[-1].NextEntry != 0:
+            cur.advanceto(a+self._entries[-1].NextEntry)
+            a = a+ self._entries[-1].NextEntry
+            FormChannel(self).decode(cur)
+
 
 class CopyChunkCopyResponse(IoctlOutput):
    ioctl_ctl_code = FSCTL_SRV_COPYCHUNK
