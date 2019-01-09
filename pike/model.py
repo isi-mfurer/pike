@@ -1951,6 +1951,7 @@ class Open(object):
             self.is_durable = True
 
         if prev is not None:
+            self.is_durable = True
             self.durable_timeout = prev.durable_timeout
             self.durable_flags = prev.durable_flags
 
