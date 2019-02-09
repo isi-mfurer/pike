@@ -2742,6 +2742,9 @@ class FileNotifyInformation(core.Frame):
 class ChangeNotifyResponse(Response):
     command_id = SMB2_CHANGE_NOTIFY
     structure_size = 9
+    allowed_status = [ntstatus.STATUS_SUCCESS,
+                      ntstatus.STATUS_NOTIFY_ENUM_DIR,
+                      ntstatus.STATUS_NOTIFY_CLEANUP]
 
     def __init__(self, parent):
         Response.__init__(self, parent)
