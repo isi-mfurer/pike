@@ -1462,7 +1462,9 @@ class Channel(object):
 
     def close_submit(self, close_req):
         resp_future = self.connection.submit(close_req.parent.parent)[0]
-        resp_future.then(close_req.handle.dispose())
+        def cleanup_handle(f):
+            close_req.handle.dispose()
+        resp_future.then(cleanup_handle)
         return resp_future
 
     def close(self, handle):
@@ -1608,7 +1610,7 @@ class Channel(object):
                     handle,
                     completion_filter,
                     flags,
-                    buffer_length=4096).parent.parent)[0][0]
+                    buffer_length=4096).parent.parent)[0]
 
     # Send an echo request and get a response
     def echo(self):
