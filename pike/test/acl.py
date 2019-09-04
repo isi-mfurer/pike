@@ -1,0 +1,75 @@
+#
+# Copyright (c) 2013, EMC Corporation
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice,
+# this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+#
+# Module Name:
+#
+#        acl.py
+#
+# Abstract:
+#
+#        SMB2/3 ACL set/get testing.
+#
+#
+import pike.model
+import pike.smb2
+import pike.test
+import pike.ntstatus
+
+from pike.test import unittest
+
+
+class AclTest(pike.test.PikeTest):
+
+    def __init__(self, *args, **kwargs):
+        super(AclTest, self).__init__(*args, **kwargs)
+        self.chan = None
+        self.tree = None
+        self.sec_info = (pike.smb2.OWNER_SECURITY_INFORMATION +
+                         pike.smb2.GROUP_SECURITY_INFORMATION +
+                         pike.smb2.DACL_SECURITY_INFORMATION)
+
+    def open_file(self):
+        """Helper to open basic file"""
+        self.chan, self.tree = self.tree_connect()
+        return self.chan.create(self.tree, "test_acl.txt", disposition=pike.smb2.FILE_SUPERSEDE).result()
+
+    def test_acl(self):
+        handle = self.open_file()
+        info = self.chan.query_file_info(
+            handle, pike.smb2.FILE_SECURITY_INFORMATION,
+            info_type=pike.smb2.SMB2_0_INFO_SECURITY,
+            additional_information=self.sec_info)
+        with self.chan.set_file_info(handle, pike.smb2.FileSecurityInformation) as file_info:
+            file_info.revision = info.revision
+            file_info.control = info.control
+            file_info.offset_owner = info.offset_owner
+            file_info.offset_group = info.offset_group
+            file_info.offset_sacl = info.offset_sacl
+            file_info.offset_dacl = info.offset_dacl
+            file_info.owner_sid = info.owner_sid
+            file_info.group_sid = info.group_sid
+            file_info.sacl = info.sacl
+            file_info.dacl = info.dacl
+        self.chan.close(handle)

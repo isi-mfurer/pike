@@ -1430,6 +1430,141 @@ class SecurityDescriptorRequest(CreateRequestContext):
                         owner_sid_size[0] + group_sid_size[0] + sacl_size[2]
         return off_owner,off_group,off_sacl,off_dacl
 
+class NT_ACL(core.Frame):
+
+    def __init__(self, parent=None, end=None):
+        super(NT_ACL, self).__init__(parent)
+        if parent is not None:
+            parent.append(self)
+        self._entries = []
+        self.acl_revision = 0
+        self.sbz1 = 0
+        self.acl_size = 0
+        self.ace_count = 0
+        self.sbz2 = 0
+        self.raw_data = ''
+
+    def _children(self):
+        return self._entries
+
+    def append(self, e):
+        self._entries.append(e)
+
+    def _decode(self, cur):
+        """
+        decode the ACL
+        """
+        self.acl_revision = cur.decode_uint8le()
+        self.sbz1 = cur.decode_uint8le()
+        self.acl_size = cur.decode_uint16le()
+        self.ace_count = cur.decode_uint16le()
+        self.sbz2 = cur.decode_uint16le()
+        for i in range(self.ace_count):
+            NT_ACE(self).decode(cur)
+        acl_remain = self.start + self.acl_size - cur
+        assert acl_remain >= 0
+        if acl_remain:
+            self.raw_data = cur.decode_bytes(acl_remain)
+
+    def _encode(self, cur):
+        """
+        encode the acl
+        """
+        cur.encode_uint8le(self.acl_revision)
+        # Reserved
+        cur.encode_uint8le(0)
+        cur.encode_uint16le(self.acl_size)
+        cur.encode_uint16le(self.ace_count)
+        # Reserved
+        cur.encode_uint16le(0)
+        for entry in self._entries:
+            entry.encode(cur)
+
+class NT_ACE(core.Frame):
+
+    def __init__(self, parent=None, end=None):
+        super(NT_ACE, self).__init__(parent)
+        if parent is not None:
+            parent.append(self)
+        self.ace_type = 0
+        self.ace_flags = 0
+        self.ace_size = 0
+        self.access_mask = 0
+        self.sid = None
+        self.raw_data = ''
+        self._entries = []
+
+    def _decode(self, cur):
+        """
+        decode the ACE
+        """
+        self.ace_type = cur.decode_uint8le()
+        self.ace_flags = cur.decode_uint8le()
+        self.ace_size = cur.decode_uint16le()
+        self.access_mask = cur.decode_uint32le()
+        self.sid = NT_SID()
+        self.sid.decode(cur)
+        #check if we reach the end
+        ace_remain = self.start + self.ace_size - cur
+        assert ace_remain >= 0
+        if ace_remain:
+            self.raw_data = cur.decode_bytes(ace_remain)
+
+    def _encode(self, cur):
+        """
+        encode the ace
+        """
+        cur.encode_uint8le(self.ace_type)
+        cur.encode_uint8le(self.ace_flags)
+        cur.encode_uint16le(self.ace_size)
+        cur.encode_uint32le(self.access_mask)
+        self.sid.encode(cur)
+
+class NT_SID(core.Frame):
+
+    def __init__(self):
+        super(NT_SID, self).__init__(self, None)
+        self.raw_data = ''
+        self.revision = 0
+        self.sub_authority_count = 0
+        self.identifier_authority = 0
+        self.sub_authority = []
+
+    def __str__(self):
+        return self.string
+
+    @property
+    def string(self):
+        sid_str = 'S-' + (str(self.revision) + '-' + \
+                str(self.identifier_authority)) + '-' + \
+                '-'.join(str(x) for x in self.sub_authority)
+        return sid_str
+
+    def _decode(self, cur):
+        """
+        decode the raw data to the specified end of buffer
+        """
+        self.revision = cur.decode_uint8le()
+        self.sub_authority_count = cur.decode_uint8le()
+        id_auth_high = cur.decode_uint16be()
+        id_auth_low = cur.decode_uint32be()
+        self.identifier_authority = (id_auth_high << 32) + id_auth_low
+        for i in range(self.sub_authority_count):
+            self.sub_authority += [cur.decode_uint32le()]
+
+    def _encode(self, cur):
+        """
+        encode the sid
+        """
+        cur.encode_uint8le(self.revision)
+        cur.encode_uint8le(self.sub_authority_count)
+        auth_bytes = '{:06x}'.format(self.identifier_authority)
+        cur.encode_uint16be((self.identifier_authority >> 32) & 0xffffffff)
+        cur.encode_uint32be(self.identifier_authority & 0xffffffff)
+        assert self.sub_authority_count == len(self.sub_authority)
+        for i in range(self.sub_authority_count):
+            cur.encode_uint32le(self.sub_authority[i])
+
 class LeaseRequest(CreateRequestContext):
     name = 'RqLs'
     # This class handles V2 requests as well.  Set
@@ -1669,6 +1804,7 @@ class CloseResponse(Response):
         self.file_attributes = FileAttributes(cur.decode_uint32le())
 
 class FileInformationClass(core.ValueEnum):
+    FILE_SECURITY_INFORMATION = 0
     FILE_DIRECTORY_INFORMATION = 1
     FILE_FULL_DIRECTORY_INFORMATION = 2
     FILE_BASIC_INFORMATION = 4
@@ -1880,7 +2016,10 @@ class QueryInfoResponse(Response):
         if key in self._info_map:
             cls = self._info_map[key]
             with cur.bounded(cur, end):
-                cls(self).decode(cur)
+                if cls == FileSecurityInformation:
+                    cls(self, end).decode(cur)
+                else:
+                    cls(self).decode(cur)
         else:
             Information(self, end).decode(cur)
 
@@ -1983,6 +2122,75 @@ class FileInformation(Information):
 @QueryInfoResponse.information
 class FileSystemInformation(Information):
     info_type = SMB2_0_INFO_FILESYSTEM
+
+class FileSecurityInformation(FileInformation):
+    file_information_class = FILE_SECURITY_INFORMATION
+    info_type = SMB2_0_INFO_SECURITY
+
+    def __init__(self, parent=None, end=None):
+        FileInformation.__init__(self, parent)
+        self.revision = 0
+        self.sbz1 = 0
+        self.control = 0
+        self.owner_sid_offset = 0
+        self.group_sid_offset = 0
+        self.offset_sacl = 0
+        self.offset_dacl = 0
+        self.other = ''
+        self.end = end
+        self.owner_sid = None
+        self.group_sid = None
+        self.sacl = ''
+        self.dacl = None
+        self._entries = []
+
+    def append(self, e):
+        self._entries.append(e)
+
+    def _decode(self, cur):
+        self.revision = cur.decode_uint8le()
+        self.sbz1 = cur.decode_uint8le()
+        self.control = cur.decode_uint16le()
+        self.offset_owner = cur.decode_uint32le()
+        self.offset_group = cur.decode_uint32le()
+        self.offset_sacl = cur.decode_uint32le()
+        self.offset_dacl = cur.decode_uint32le()
+        if self.offset_owner != 0:
+            # find next non-zero offset in list
+            self.owner_sid = NT_SID()
+            self.owner_sid.decode(cur)
+        if self.offset_group != 0:
+            self.group_sid = NT_SID()
+            self.group_sid.decode(cur)
+        if self.offset_sacl != 0:
+            sacl_len = (self.offset_dacl - self.offset_sacl) if self.offset_dacl > 0 else (self.end - self.start - self.offset_sacl)
+            self.sacl = cur.decode_bytes(sacl_len)
+        if self.offset_dacl != 0:
+            self.dacl = NT_ACL(self)
+            self.dacl.decode(cur)
+        if self.end is not None:
+            self.other = cur.decode_bytes(self.end - cur)
+
+    def _encode(self, cur):
+        cur.encode_uint8le(self.revision)
+        cur.encode_uint8le(0)
+        cur.encode_uint16le(self.control)
+        cur.encode_uint32le(self.offset_owner)
+        cur.encode_uint32le(self.offset_group)
+        cur.encode_uint32le(self.offset_sacl)
+        cur.encode_uint32le(self.offset_dacl)
+        if self.owner_sid != None:
+            assert self.offset_owner != 0
+            self.owner_sid.encode(cur)
+        if self.group_sid != None:
+            assert self.offset_group != 0
+            self.group_sid.encode(cur)
+        if self.sacl != '':
+            assert self.offset_sacl != 0
+            cur.encode_bytes(self.sacl)
+        if self.dacl != None:
+            assert self.offset_dacl != 0
+            self.dacl.encode(cur)
 
 class FileAccessInformation(FileInformation):
     file_information_class = FILE_ACCESS_INFORMATION
