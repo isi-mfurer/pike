@@ -64,10 +64,6 @@ class AclTest(pike.test.PikeTest):
         with self.chan.set_file_info(handle, pike.smb2.FileSecurityInformation) as file_info:
             file_info.revision = info.revision
             file_info.control = info.control
-            file_info.offset_owner = info.offset_owner
-            file_info.offset_group = info.offset_group
-            file_info.offset_sacl = info.offset_sacl
-            file_info.offset_dacl = info.offset_dacl
             file_info.owner_sid = info.owner_sid
             file_info.group_sid = info.group_sid
             file_info.sacl = info.sacl

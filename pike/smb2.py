@@ -1550,7 +1550,7 @@ class NT_SID(core.Frame):
         id_auth_low = cur.decode_uint32be()
         self.identifier_authority = (id_auth_high << 32) + id_auth_low
         for i in range(self.sub_authority_count):
-            self.sub_authority += [cur.decode_uint32le()]
+            self.sub_authority.append(cur.decode_uint32le())
 
     def _encode(self, cur):
         """
@@ -2132,8 +2132,8 @@ class FileSecurityInformation(FileInformation):
         self.revision = 0
         self.sbz1 = 0
         self.control = 0
-        self.owner_sid_offset = 0
-        self.group_sid_offset = 0
+        self.offset_owner = 0
+        self.offset_group = 0
         self.offset_sacl = 0
         self.offset_dacl = 0
         self.other = ''
@@ -2175,21 +2175,30 @@ class FileSecurityInformation(FileInformation):
         cur.encode_uint8le(self.revision)
         cur.encode_uint8le(0)
         cur.encode_uint16le(self.control)
-        cur.encode_uint32le(self.offset_owner)
-        cur.encode_uint32le(self.offset_group)
-        cur.encode_uint32le(self.offset_sacl)
-        cur.encode_uint32le(self.offset_dacl)
+        # Encode 0 for all the offsets for now
+        owner_ofs = cur.hole.encode_uint32le(0)
+        group_ofs = cur.hole.encode_uint32le(0)
+        sacl_ofs = cur.hole.encode_uint32le(0)
+        dacl_ofs = cur.hole.encode_uint32le(0)
         if self.owner_sid != None:
-            assert self.offset_owner != 0
+            if self.offset_owner == 0:
+                self.offset_owner = cur - self.start
+            owner_ofs(self.offset_owner)
             self.owner_sid.encode(cur)
         if self.group_sid != None:
-            assert self.offset_group != 0
+            if self.offset_group == 0:
+                self.offset_group = cur - self.start
+            group_ofs(self.offset_group)
             self.group_sid.encode(cur)
         if self.sacl != '':
-            assert self.offset_sacl != 0
+            if self.offset_sacl == 0:
+                self.offset_sacl = cur - self.start
+            sacl_ofs(self.offset_sacl)
             cur.encode_bytes(self.sacl)
         if self.dacl != None:
-            assert self.offset_dacl != 0
+            if self.offset_dacl == 0:
+                self.offset_dacl = cur - self.start
+            dacl_ofs(self.offset_dacl)
             self.dacl.encode(cur)
 
 class FileAccessInformation(FileInformation):
