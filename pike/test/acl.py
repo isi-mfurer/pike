@@ -66,12 +66,7 @@ class SecTest(pike.test.PikeTest):
             info_type=pike.smb2.SMB2_0_INFO_SECURITY,
             additional_information=self.sec_info)
         with self.chan.set_file_info(handle, pike.smb2.FileSecurityInformation) as file_info:
-            file_info.revision = info.revision
-            file_info.control = info.control
-            file_info.owner_sid = info.owner_sid
-            file_info.group_sid = info.group_sid
-            file_info.sacl = info.sacl
-            file_info.dacl = info.dacl
+            file_info.clone_from(info)
         self.chan.close(handle)
 
     def test_set_sec_owner(self):
@@ -81,9 +76,7 @@ class SecTest(pike.test.PikeTest):
             info_type=pike.smb2.SMB2_0_INFO_SECURITY,
             additional_information=self.sec_info)
         with self.chan.set_file_info(handle, pike.smb2.FileSecurityInformation) as file_info:
-            file_info.revision = info.revision
-            file_info.control = info.control
-            file_info.owner_sid = info.owner_sid
+            file_info.clone_from(info, ["owner_sid"])
         self.chan.close(handle)
 
     def test_set_sec_group(self):
@@ -93,9 +86,7 @@ class SecTest(pike.test.PikeTest):
             info_type=pike.smb2.SMB2_0_INFO_SECURITY,
             additional_information=self.sec_info)
         with self.chan.set_file_info(handle, pike.smb2.FileSecurityInformation) as file_info:
-            file_info.revision = info.revision
-            file_info.control = info.control
-            file_info.group_sid = info.group_sid
+            file_info.clone_from(info, ["group_sid"])
         self.chan.close(handle)
 
     def test_set_sec_dacl(self):
@@ -105,9 +96,7 @@ class SecTest(pike.test.PikeTest):
             info_type=pike.smb2.SMB2_0_INFO_SECURITY,
             additional_information=self.sec_info)
         with self.chan.set_file_info(handle, pike.smb2.FileSecurityInformation) as file_info:
-            file_info.revision = info.revision
-            file_info.control = info.control
-            file_info.dacl = info.dacl
+            file_info.clone_from(info, ["dacl"])
         self.chan.close(handle)
 
     def test_set_sec_dacl_partial_copy(self):
@@ -117,12 +106,11 @@ class SecTest(pike.test.PikeTest):
             info_type=pike.smb2.SMB2_0_INFO_SECURITY,
             additional_information=self.sec_info)
         with self.chan.set_file_info(handle, pike.smb2.FileSecurityInformation) as file_info:
-            file_info.revision = info.revision
-            file_info.control = info.control
-            aces = info.dacl.aces
-            new_dacl = pike.smb2.NT_ACL(file_info)
+            file_info.clone_from(info, [])
+            aces = info.dacl.children
+            new_dacl = pike.smb2.NT_ACL()
             new_dacl.acl_revision = pike.smb2.ACL_REVISION
-            new_dacl.aces = [aces[0]]
+            new_dacl.append(aces[0])
             file_info.dacl = new_dacl
         self.chan.close(handle)
 
@@ -133,20 +121,15 @@ class SecTest(pike.test.PikeTest):
             info_type=pike.smb2.SMB2_0_INFO_SECURITY,
             additional_information=self.sec_info)
         with self.chan.set_file_info(handle, pike.smb2.FileSecurityInformation) as file_info:
-            file_info.revision = info.revision
-            file_info.control = info.control
+            file_info.clone_from(info, [])
             aces = info.dacl.children
-            new_dacl = pike.smb2.NT_ACL(file_info)
+            new_dacl = pike.smb2.NT_ACL()
             new_dacl.acl_revision = pike.smb2.ACL_REVISION
             new_dacl._entries = aces
             # append a modified ace
-            local_sid = pike.smb2.NT_SID()
-            local_sid.revision = 1
-            local_sid.identifier_authority = 5
-            local_sid.sub_authority = [18]
-            template_ace = copy.copy(aces[0])
-            template_ace.sid = local_sid
-            new_dacl.aces = aces + [template_ace]
+            template_ace = aces[0].clone(new_parent=new_dacl)
+            template_ace.sid.identifier_authority = 5
+            template_ace.sid.sub_authority = [18]
             file_info.dacl = new_dacl
         self.chan.close(handle)
 
@@ -157,19 +140,14 @@ class SecTest(pike.test.PikeTest):
             info_type=pike.smb2.SMB2_0_INFO_SECURITY,
             additional_information=self.sec_info)
         with self.chan.set_file_info(handle, pike.smb2.FileSecurityInformation) as file_info:
-            file_info.revision = info.revision
-            file_info.control = info.control
+            file_info.clone_from(info, [])
             aces = info.dacl.children
-            new_dacl = pike.smb2.NT_ACL(file_info)
-            new_dacl.acl_revision = pike.smb2.ACL_REVISION
-            new_dacl.aces = copy.copy(aces)
-            # append a modified ace
-            local_sid = pike.smb2.NT_SID()
-            local_sid.revision = 1
-            local_sid.identifier_authority = 5
-            local_sid.sub_authority = [18]
-            template_ace = copy.copy(aces[0])
-            template_ace.sid = local_sid
+            new_dacl = info.dacl.clone()
             file_info.dacl = new_dacl
-            file_info.dacl.aces.append(template_ace)
+
+            # append a modified ace
+            template_ace = aces[0].clone(new_parent=None)
+            template_ace.sid.identifier_authority = 5
+            template_ace.sid.sub_authority = [18]
+            file_info.dacl.append(template_ace)
         self.chan.close(handle)
