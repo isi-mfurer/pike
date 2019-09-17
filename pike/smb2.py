@@ -1450,11 +1450,8 @@ class SecurityDescriptorRequest(CreateRequestContext):
 
 class NT_ACL(core.Frame):
 
-    def __init__(self, parent=None, end=None):
-        super(NT_ACL, self).__init__(parent)
-        if parent is not None:
-            parent.append(self)
-        self.parent = parent
+    def __init__(self):
+        super(NT_ACL, self).__init__(parent=None)
         self._entries = []
         self.acl_revision = 0
         self.sbz1 = 0
@@ -1468,6 +1465,18 @@ class NT_ACL(core.Frame):
 
     def append(self, e):
         self._entries.append(e)
+
+    def clone(self):
+        """
+        return a copy of this NT_ACL with calculated fields reset
+        """
+        acl = NT_ACL()
+        acl.acl_revision = self.acl_revision
+        if self.raw_data:
+            acl.raw_data = array.array('B', self.raw_data)
+        for ace in self:
+            ace.clone(new_parent=acl)
+        return acl
 
     def _decode(self, cur):
         """
@@ -1522,6 +1531,19 @@ class NT_ACE(core.Frame):
         self.raw_data = ''
         self._entries = []
 
+    def clone(self, new_parent=None):
+        """
+        return a copy of this NT_ACE with calculated fields reset
+        """
+        ace = NT_ACE(new_parent)
+        ace.ace_type = self.ace_type
+        ace.ace_flags = self.ace_flags
+        ace.access_mask = self.access_mask
+        ace._sid = self._sid.clone()
+        if self.raw_data:
+            ace.raw_data = array.array('B', self.raw_data)
+        return ace
+
     @property
     def sid(self):
         return self._sid
@@ -1574,6 +1596,18 @@ class NT_SID(core.Frame):
         self.sub_authority_count = 0
         self.identifier_authority = 0
         self._sub_authority = []
+
+    def clone(self):
+        """
+        return a copy of this NT_SID with calculated fields reset
+        """
+        sid = NT_SID()
+        sid.revision = self.revision
+        sid.identifier_authority = self.identifier_authority
+        sid._sub_authority = self._sub_authority
+        if self.raw_data:
+            sid.raw_data = array.array('B', self.raw_data)
+        return sid
 
     def _str(self, indent):
         return self.string
@@ -2208,6 +2242,59 @@ class FileSecurityInformation(FileInformation):
     def _children(self):
         return self._entries
 
+    def _static_clone(o1, o2, copy_fields=None):
+        """
+        static method implementing both clone and clone_from methods
+
+        o1 is updated based on the values in o2
+
+        copy_fields is a list of field names that will be cloned.
+        if copy_fields is None (default), all fields are copied
+
+        header fields 'revision' and 'control' are always cloned
+        """
+        o1.revision = o2.revision
+        o1.control = o2.control
+        if copy_fields is None or "other" in copy_fields:
+            if o2.other:
+                o1.other = array.array('B', o2.other)
+        if copy_fields is None or "owner_sid" in copy_fields:
+            o1.owner_sid = o2.owner_sid.clone()
+        if copy_fields is None or "group_sid" in copy_fields:
+            o1.group_sid = o2.group_sid.clone()
+        if copy_fields is None or "sacl" in copy_fields:
+            o1.sacl = o2.sacl
+        if copy_fields is None or "dacl" in copy_fields:
+            o1.dacl = o2.dacl.clone()
+
+    def clone_from(self, sec_info, copy_fields=None):
+        """
+        update the fields in this FileSecurityInformation based on the values
+        of sec_info
+
+        copy_fields is a list of field names that will be cloned.
+        if copy_fields is None (default), all fields are copied
+
+        header fields 'revision' and 'control' are always cloned
+
+        all calculated fields will be reset and this FileSecurityInformation
+        may be subsequently modified and used to set FileSecurityInformation
+        """
+        FileSecurityInformation._static_clone(self, sec_info, copy_fields)
+
+    def clone(self, new_parent=None, copy_fields=None):
+        """
+        return a copy of this FileSecurityInfo with calculated fields reset
+
+        copy_fields is a list of field names that will be cloned.
+        if copy_fields is None (default), all fields are copied
+
+        header fields 'revision' and 'control' are always cloned
+        """
+        sec_info = FileSecurityInformation(new_parent)
+        FileSecurityInformation._static_clone(sec_info, self, copy_fields)
+        return sec_info
+
     def _reset_offsets(self):
         self.offset_owner = 0
         self.offset_group = 0
@@ -2277,7 +2364,7 @@ class FileSecurityInformation(FileInformation):
             sacl_len = (self.offset_dacl - self.offset_sacl) if self.offset_dacl > 0 else (self.end - self.start - self.offset_sacl)
             self._sacl = cur.decode_bytes(sacl_len)
         if self.offset_dacl != 0:
-            self._dacl = NT_ACL(self)
+            self._dacl = NT_ACL()
             self._dacl.decode(cur)
         if self.end is not None:
             self.other = cur.decode_bytes(self.end - cur)
