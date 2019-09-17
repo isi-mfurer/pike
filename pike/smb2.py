@@ -1448,17 +1448,6 @@ class SecurityDescriptorRequest(CreateRequestContext):
                         owner_sid_size[0] + group_sid_size[0] + sacl_size[2]
         return off_owner,off_group,off_sacl,off_dacl
 
-class ACE_LIST(list):
-    def __init__(self, parent=None, *args):
-        super(ACE_LIST, self).__init__(*args)
-        self.parent = parent
-
-    def append(self, item):
-        super(ACE_LIST, self).append(item)
-        if isinstance(self.parent, NT_ACL):
-            self.parent.acl_size = -1
-            self.parent.ace_count = -1
-
 class NT_ACL(core.Frame):
 
     def __init__(self, parent=None, end=None):
@@ -1466,7 +1455,7 @@ class NT_ACL(core.Frame):
         if parent is not None:
             parent.append(self)
         self.parent = parent
-        self._entries = ACE_LIST(parent, [])
+        self._entries = []
         self.acl_revision = 0
         self.sbz1 = 0
         self.acl_size = -1
@@ -1476,18 +1465,6 @@ class NT_ACL(core.Frame):
 
     def _children(self):
         return self._entries
-
-    @property
-    def aces(self):
-        return self._entries
-
-    @aces.setter
-    def aces(self, ace_list):
-        if not isinstance(ace_list, list):
-            raise ValueError('aces must be a list!')
-        self._entries = ACE_LIST(self.parent, ace_list)
-        self.acl_size = -1
-        self.ace_count = -1
 
     def append(self, e):
         self._entries.append(e)
