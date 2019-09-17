@@ -36,14 +36,15 @@ import pike.model
 import pike.smb2
 import pike.test
 import pike.ntstatus
+import copy
 
 from pike.test import unittest
 
 
-class AclTest(pike.test.PikeTest):
+class SecTest(pike.test.PikeTest):
 
     def __init__(self, *args, **kwargs):
-        super(AclTest, self).__init__(*args, **kwargs)
+        super(SecTest, self).__init__(*args, **kwargs)
         self.chan = None
         self.tree = None
         self.sec_info = (pike.smb2.OWNER_SECURITY_INFORMATION +
@@ -53,9 +54,12 @@ class AclTest(pike.test.PikeTest):
     def open_file(self):
         """Helper to open basic file"""
         self.chan, self.tree = self.tree_connect()
-        return self.chan.create(self.tree, "test_acl.txt", disposition=pike.smb2.FILE_SUPERSEDE).result()
+        return self.chan.create(self.tree, "test_sec.txt",
+                                options=pike.smb2.FILE_DELETE_ON_CLOSE,
+                                access=pike.smb2.READ_CONTROL | pike.smb2.DELETE | pike.smb2.WRITE_DAC,
+                                disposition=pike.smb2.FILE_SUPERSEDE).result()
 
-    def test_acl(self):
+    def test_set_sec_same(self):
         handle = self.open_file()
         info = self.chan.query_file_info(
             handle, pike.smb2.FILE_SECURITY_INFORMATION,
@@ -68,4 +72,81 @@ class AclTest(pike.test.PikeTest):
             file_info.group_sid = info.group_sid
             file_info.sacl = info.sacl
             file_info.dacl = info.dacl
+        self.chan.close(handle)
+
+    def test_set_sec_owner(self):
+        handle = self.open_file()
+        info = self.chan.query_file_info(
+            handle, pike.smb2.FILE_SECURITY_INFORMATION,
+            info_type=pike.smb2.SMB2_0_INFO_SECURITY,
+            additional_information=self.sec_info)
+        with self.chan.set_file_info(handle, pike.smb2.FileSecurityInformation) as file_info:
+            file_info.revision = info.revision
+            file_info.control = info.control
+            file_info.owner_sid = info.owner_sid
+        self.chan.close(handle)
+
+    def test_set_sec_group(self):
+        handle = self.open_file()
+        info = self.chan.query_file_info(
+            handle, pike.smb2.FILE_SECURITY_INFORMATION,
+            info_type=pike.smb2.SMB2_0_INFO_SECURITY,
+            additional_information=self.sec_info)
+        with self.chan.set_file_info(handle, pike.smb2.FileSecurityInformation) as file_info:
+            file_info.revision = info.revision
+            file_info.control = info.control
+            file_info.group_sid = info.group_sid
+        self.chan.close(handle)
+
+    def test_set_sec_dacl(self):
+        handle = self.open_file()
+        info = self.chan.query_file_info(
+            handle, pike.smb2.FILE_SECURITY_INFORMATION,
+            info_type=pike.smb2.SMB2_0_INFO_SECURITY,
+            additional_information=self.sec_info)
+        with self.chan.set_file_info(handle, pike.smb2.FileSecurityInformation) as file_info:
+            file_info.revision = info.revision
+            file_info.control = info.control
+            file_info.dacl = info.dacl
+        self.chan.close(handle)
+
+    def test_set_sec_dacl_partial_copy(self):
+        handle = self.open_file()
+        info = self.chan.query_file_info(
+            handle, pike.smb2.FILE_SECURITY_INFORMATION,
+            info_type=pike.smb2.SMB2_0_INFO_SECURITY,
+            additional_information=self.sec_info)
+        with self.chan.set_file_info(handle, pike.smb2.FileSecurityInformation) as file_info:
+            file_info.revision = info.revision
+            file_info.control = info.control
+            aces = info.dacl.aces
+            new_dacl = pike.smb2.NT_ACL(file_info)
+            new_dacl.acl_revision = pike.smb2.ACL_REVISION
+            new_dacl.aces = [aces[0]]
+            file_info.dacl = new_dacl
+        self.chan.close(handle)
+
+    def test_set_sec_dacl_modify_ace(self):
+        handle = self.open_file()
+        info = self.chan.query_file_info(
+            handle, pike.smb2.FILE_SECURITY_INFORMATION,
+            info_type=pike.smb2.SMB2_0_INFO_SECURITY,
+            additional_information=self.sec_info)
+        with self.chan.set_file_info(handle, pike.smb2.FileSecurityInformation) as file_info:
+            file_info.revision = info.revision
+            file_info.control = info.control
+            aces = info.dacl.children
+            new_dacl = pike.smb2.NT_ACL(file_info)
+            new_dacl.acl_revision = pike.smb2.ACL_REVISION
+            new_dacl._entries = aces
+            # append a modified ace
+            local_sid = pike.smb2.NT_SID()
+            local_sid.revision = 1
+            local_sid.identifier_authority = 5
+            local_sid.sub_authority = [18]
+            template_ace = copy.copy(aces[0])
+            template_ace.sid = local_sid
+            new_dacl.aces = aces + [template_ace]
+            file_info.dacl = new_dacl
+
         self.chan.close(handle)

@@ -1222,6 +1222,24 @@ class LeaseFlags(core.FlagEnum):
 
 LeaseFlags.import_items(globals())
 
+class SecDescControl(core.FlagEnum):
+    SR    = 0x0001
+    RM    = 0x0002
+    PS    = 0x0004
+    PD    = 0x0008
+    SI    = 0x0010
+    DI    = 0x0020
+    SC    = 0x0040
+    DC    = 0x0080
+    SS    = 0x0100
+    DT    = 0x0200
+    SD    = 0x0400
+    SP    = 0x0800
+    DD    = 0x1000
+    DP    = 0x2000
+    GD    = 0x4000
+    OD    = 0x8000
+
 class AceType(core.ValueEnum):
     ACCESS_ALLOWED_ACE_TYPE                  = 0x00
     ACCESS_DENIED_ACE_TYPE                   = 0x01
@@ -1439,13 +1457,25 @@ class NT_ACL(core.Frame):
         self._entries = []
         self.acl_revision = 0
         self.sbz1 = 0
-        self.acl_size = 0
-        self.ace_count = 0
+        self.acl_size = -1
+        self.ace_count = -1
         self.sbz2 = 0
         self.raw_data = ''
 
     def _children(self):
         return self._entries
+
+    @property
+    def aces(self):
+        return self._entries
+
+    @aces.setter
+    def aces(self, ace_list):
+        if not isinstance(ace_list, list):
+            raise ValueError('aces must be a list!')
+        self._entries = ace_list
+        self.acl_size = -1
+        self.ace_count = -1
 
     def append(self, e):
         self._entries.append(e)
@@ -1454,7 +1484,7 @@ class NT_ACL(core.Frame):
         """
         decode the ACL
         """
-        self.acl_revision = cur.decode_uint8le()
+        self.acl_revision = AclRevision(cur.decode_uint8le())
         self.sbz1 = cur.decode_uint8le()
         self.acl_size = cur.decode_uint16le()
         self.ace_count = cur.decode_uint16le()
@@ -1473,12 +1503,21 @@ class NT_ACL(core.Frame):
         cur.encode_uint8le(self.acl_revision)
         # Reserved
         cur.encode_uint8le(0)
-        cur.encode_uint16le(self.acl_size)
-        cur.encode_uint16le(self.ace_count)
+        #hole for acl_size and acl_count
+        acl_size_hole = cur.hole.encode_uint16le(0)
+        acl_count_hole = cur.hole.encode_uint16le(0)
         # Reserved
         cur.encode_uint16le(0)
         for entry in self._entries:
             entry.encode(cur)
+        if len(self.raw_data):
+            cur.encode_bytes(self.raw_data)
+        if self.acl_size == -1:
+            self.acl_size = cur - self.start
+        acl_size_hole(self.acl_size)
+        if self.ace_count == -1:
+            self.ace_count = len(self._entries)
+        acl_count_hole(self.ace_count)
 
 class NT_ACE(core.Frame):
 
@@ -1488,22 +1527,33 @@ class NT_ACE(core.Frame):
             parent.append(self)
         self.ace_type = 0
         self.ace_flags = 0
-        self.ace_size = 0
+        self.ace_size = -1
         self.access_mask = 0
-        self.sid = None
+        self._sid = None
         self.raw_data = ''
         self._entries = []
+
+    @property
+    def sid(self):
+        return self._sid
+
+    @sid.setter
+    def sid(self, a_sid):
+        if not isinstance(a_sid, NT_SID):
+            raise ValueError('sid must be an NT_SID!')
+        self._sid = a_sid
+        self.ace_size = -1
 
     def _decode(self, cur):
         """
         decode the ACE
         """
-        self.ace_type = cur.decode_uint8le()
-        self.ace_flags = cur.decode_uint8le()
+        self.ace_type = AceType(cur.decode_uint8le())
+        self.ace_flags = AceFlags(cur.decode_uint8le())
         self.ace_size = cur.decode_uint16le()
-        self.access_mask = cur.decode_uint32le()
-        self.sid = NT_SID()
-        self.sid.decode(cur)
+        self.access_mask = Access(cur.decode_uint32le())
+        self._sid = NT_SID()
+        self._sid.decode(cur)
         #check if we reach the end
         ace_remain = self.start + self.ace_size - cur
         assert ace_remain >= 0
@@ -1516,9 +1566,15 @@ class NT_ACE(core.Frame):
         """
         cur.encode_uint8le(self.ace_type)
         cur.encode_uint8le(self.ace_flags)
-        cur.encode_uint16le(self.ace_size)
+        #hole for ace size
+        ace_size_hole = cur.hole.encode_uint16le(0)
         cur.encode_uint32le(self.access_mask)
-        self.sid.encode(cur)
+        self._sid.encode(cur)
+        if len(self.raw_data):
+            cur.encode_bytes(self.raw_data)
+        if self.ace_size == -1:
+            self.ace_size = cur - self.start
+        ace_size_hole(self.ace_size)
 
 class NT_SID(core.Frame):
 
@@ -1528,16 +1584,27 @@ class NT_SID(core.Frame):
         self.revision = 0
         self.sub_authority_count = 0
         self.identifier_authority = 0
-        self.sub_authority = []
+        self._sub_authority = []
 
-    def __str__(self):
+    def _str(self, indent):
         return self.string
+
+    @property
+    def sub_authority(self):
+        return self._sub_authority
+
+    @sub_authority.setter
+    def sub_authority(self, sub_auth_list):
+        if not isinstance(sub_auth_list, list):
+            raise ValueError('sub_authority must be an list!')
+        self._sub_authority = sub_auth_list
+        self.sub_authority_count = 0
 
     @property
     def string(self):
         sid_str = 'S-' + (str(self.revision) + '-' + \
                 str(self.identifier_authority)) + '-' + \
-                '-'.join(str(x) for x in self.sub_authority)
+                '-'.join(str(x) for x in self._sub_authority)
         return sid_str
 
     def _decode(self, cur):
@@ -1550,20 +1617,22 @@ class NT_SID(core.Frame):
         id_auth_low = cur.decode_uint32be()
         self.identifier_authority = (id_auth_high << 32) + id_auth_low
         for i in range(self.sub_authority_count):
-            self.sub_authority.append(cur.decode_uint32le())
+            self._sub_authority.append(cur.decode_uint32le())
 
     def _encode(self, cur):
         """
         encode the sid
         """
         cur.encode_uint8le(self.revision)
-        cur.encode_uint8le(self.sub_authority_count)
+        subauth_count_hole = cur.hole.encode_uint8le(0)
         auth_bytes = '{:06x}'.format(self.identifier_authority)
         cur.encode_uint16be((self.identifier_authority >> 32) & 0xffffffff)
         cur.encode_uint32be(self.identifier_authority & 0xffffffff)
-        assert self.sub_authority_count == len(self.sub_authority)
-        for i in range(self.sub_authority_count):
-            cur.encode_uint32le(self.sub_authority[i])
+        for i in range(len(self._sub_authority)):
+            cur.encode_uint32le(self._sub_authority[i])
+        if self.sub_authority_count == 0:
+            self.sub_authority_count = len(self._sub_authority)
+        subauth_count_hole(self.sub_authority_count)
 
 class LeaseRequest(CreateRequestContext):
     name = 'RqLs'
@@ -2138,36 +2207,89 @@ class FileSecurityInformation(FileInformation):
         self.offset_dacl = 0
         self.other = ''
         self.end = end
-        self.owner_sid = None
-        self.group_sid = None
-        self.sacl = ''
-        self.dacl = None
+        self._owner_sid = None
+        self._group_sid = None
+        self._sacl = ''
+        self._dacl = None
         self._entries = []
 
     def append(self, e):
         self._entries.append(e)
 
+    def _children(self):
+        return self._entries
+
+    def _reset_offsets(self):
+        self.offset_owner = 0
+        self.offset_group = 0
+        self.offset_sacl = 0
+        self.offset_dacl = 0
+
+    @property
+    def owner_sid(self):
+        return self._owner_sid
+
+    @owner_sid.setter
+    def owner_sid(self, a_sid):
+        if not isinstance(a_sid, NT_SID):
+            raise ValueError('owner_sid must be an NT_SID!')
+        self._owner_sid = a_sid
+        self._reset_offsets()
+
+    @property
+    def group_sid(self):
+        return self._group_sid
+
+    @group_sid.setter
+    def group_sid(self, a_sid):
+        if not isinstance(a_sid, NT_SID):
+            raise ValueError('group_sid must be an NT_SID!')
+        self._group_sid = a_sid
+        self._reset_offsets()
+
+    @property
+    def sacl(self):
+        return self._sacl
+
+    @sacl.setter
+    def sacl(self, sacl_str):
+        if not isinstance(sacl_str, str):
+            raise ValueError('sacl_str must be an string!')
+        self._sacl = sacl_str
+        self._reset_offsets()
+
+    @property
+    def dacl(self):
+        return self._dacl
+
+    @dacl.setter
+    def dacl(self, a_dacl):
+        if not isinstance(a_dacl, NT_ACL):
+            raise ValueError('dacl must be an NT_ACL!')
+        self._dacl = a_dacl
+        self._reset_offsets()
+
     def _decode(self, cur):
         self.revision = cur.decode_uint8le()
         self.sbz1 = cur.decode_uint8le()
-        self.control = cur.decode_uint16le()
+        self.control = SecDescControl(cur.decode_uint16le())
         self.offset_owner = cur.decode_uint32le()
         self.offset_group = cur.decode_uint32le()
         self.offset_sacl = cur.decode_uint32le()
         self.offset_dacl = cur.decode_uint32le()
         if self.offset_owner != 0:
             # find next non-zero offset in list
-            self.owner_sid = NT_SID()
-            self.owner_sid.decode(cur)
+            self._owner_sid = NT_SID()
+            self._owner_sid.decode(cur)
         if self.offset_group != 0:
-            self.group_sid = NT_SID()
-            self.group_sid.decode(cur)
+            self._group_sid = NT_SID()
+            self._group_sid.decode(cur)
         if self.offset_sacl != 0:
             sacl_len = (self.offset_dacl - self.offset_sacl) if self.offset_dacl > 0 else (self.end - self.start - self.offset_sacl)
-            self.sacl = cur.decode_bytes(sacl_len)
+            self._sacl = cur.decode_bytes(sacl_len)
         if self.offset_dacl != 0:
-            self.dacl = NT_ACL(self)
-            self.dacl.decode(cur)
+            self._dacl = NT_ACL(self)
+            self._dacl.decode(cur)
         if self.end is not None:
             self.other = cur.decode_bytes(self.end - cur)
 
@@ -2180,26 +2302,26 @@ class FileSecurityInformation(FileInformation):
         group_ofs = cur.hole.encode_uint32le(0)
         sacl_ofs = cur.hole.encode_uint32le(0)
         dacl_ofs = cur.hole.encode_uint32le(0)
-        if self.owner_sid != None:
+        if self._owner_sid != None:
             if self.offset_owner == 0:
                 self.offset_owner = cur - self.start
             owner_ofs(self.offset_owner)
-            self.owner_sid.encode(cur)
-        if self.group_sid != None:
+            self._owner_sid.encode(cur)
+        if self._group_sid != None:
             if self.offset_group == 0:
                 self.offset_group = cur - self.start
             group_ofs(self.offset_group)
-            self.group_sid.encode(cur)
-        if self.sacl != '':
+            self._group_sid.encode(cur)
+        if self._sacl != '':
             if self.offset_sacl == 0:
                 self.offset_sacl = cur - self.start
             sacl_ofs(self.offset_sacl)
-            cur.encode_bytes(self.sacl)
-        if self.dacl != None:
+            cur.encode_bytes(self._sacl)
+        if self._dacl != None:
             if self.offset_dacl == 0:
                 self.offset_dacl = cur - self.start
             dacl_ofs(self.offset_dacl)
-            self.dacl.encode(cur)
+            self._dacl.encode(cur)
 
 class FileAccessInformation(FileInformation):
     file_information_class = FILE_ACCESS_INFORMATION
