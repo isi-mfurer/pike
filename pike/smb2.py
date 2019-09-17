@@ -1582,7 +1582,7 @@ class NT_SID(core.Frame):
         super(NT_SID, self).__init__(self, None)
         self.raw_data = ''
         self.revision = 0
-        self.sub_authority_count = 0
+        self.sub_authority_count = -1
         self.identifier_authority = 0
         self.sub_authority = []
 
@@ -1631,7 +1631,7 @@ class NT_SID(core.Frame):
         cur.encode_uint32be(self.identifier_authority & 0xffffffff)
         for i in range(len(self.sub_authority)):
             cur.encode_uint32le(self.sub_authority[i])
-        if self.sub_authority_count == 0:
+        if self.sub_authority_count == -1:
             self.sub_authority_count = len(self.sub_authority)
         subauth_count_hole(self.sub_authority_count)
 
@@ -2203,15 +2203,15 @@ class FileSecurityInformation(FileInformation):
         self.revision = 0
         self.sbz1 = 0
         self.control = 0
-        self.offset_owner = 0
-        self.offset_group = 0
-        self.offset_sacl = 0
-        self.offset_dacl = 0
+        self.offset_owner = -1
+        self.offset_group = -1
+        self.offset_sacl = -1
+        self.offset_dacl = -1
         self.other = ''
         self.end = end
         self.owner_sid = None
         self.group_sid = None
-        self.sacl = ''
+        self.sacl = None
         self.dacl = None
 
     def _static_clone(o1, o2, copy_fields=None):
@@ -2300,23 +2300,23 @@ class FileSecurityInformation(FileInformation):
         group_ofs = cur.hole.encode_uint32le(0)
         sacl_ofs = cur.hole.encode_uint32le(0)
         dacl_ofs = cur.hole.encode_uint32le(0)
-        if self.owner_sid != None:
-            if self.offset_owner == 0:
+        if self.owner_sid is not None:
+            if self.offset_owner == -1:
                 self.offset_owner = cur - self.start
             owner_ofs(self.offset_owner)
             self.owner_sid.encode(cur)
-        if self.group_sid != None:
-            if self.offset_group == 0:
+        if self.group_sid is not None:
+            if self.offset_group == -1:
                 self.offset_group = cur - self.start
             group_ofs(self.offset_group)
             self.group_sid.encode(cur)
-        if self.sacl != '':
-            if self.offset_sacl == 0:
+        if self.sacl is not None:
+            if self.offset_sacl == -1:
                 self.offset_sacl = cur - self.start
             sacl_ofs(self.offset_sacl)
             cur.encode_bytes(self.sacl)
-        if self.dacl != None:
-            if self.offset_dacl == 0:
+        if self.dacl is not None:
+            if self.offset_dacl == -1:
                 self.offset_dacl = cur - self.start
             dacl_ofs(self.offset_dacl)
             self.dacl.encode(cur)
