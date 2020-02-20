@@ -1,5 +1,3 @@
-from __future__ import print_function
-from __future__ import division
 #
 # Copyright (c) 2013, EMC Corporation
 # All rights reserved.
@@ -35,21 +33,18 @@ from __future__ import division
 #
 # Authors: Brian Koropoff (brian.koropoff@emc.com)
 #
-
-from future.utils import raise_from
+from __future__ import print_function
+from __future__ import division
 from builtins import object
 from builtins import str
-import os
+from future.utils import raise_from
+
+import contextlib
 import gc
 import logging
+import os
+import unittest
 import sys
-import contextlib
-
-# Try and import backported unittest2 module in python2.6
-try:
-    import unittest2 as unittest
-except ImportError:
-    import unittest
 
 import pike.model as model
 import pike.smb2 as smb2
