@@ -54,6 +54,7 @@ class Transport(object):
         sock = socket.socket(family, type)
         sock.setblocking(0)
         self.set_socket(sock)
+        print("CREATE NON-BLOCKING SOCKET: {} {}".format(family, type))
 
     def set_socket(self, sock):
         """
@@ -75,13 +76,16 @@ class Transport(object):
         that the endpoint is successfully connected
         """
         self.connected = False
+        print("socket.connect_ex({!r})".format(address))
         err = self.socket.connect_ex(address)
         if err in (EINPROGRESS, EALREADY, EWOULDBLOCK):
+            print("Returning from Transport.connect() EARLY")
             return
         if err in (0, EISCONN):
             self.addr = address
             self.handle_connect_event()
         else:
+            print("Raising from Transport.connect()")
             raise socket.error(err, errorcode[err])
 
     def close(self):
