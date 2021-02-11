@@ -32,6 +32,7 @@ def ping_port(ip, port, timeout, step=1):
             s.settimeout(timeout)
             s.connect((str(ip), int(port)))
             s.close()
+            print("Successfully connect to {}:{}".format(ip, port))
             return True
         except (socket.error, socket.gaierror):
             pass
