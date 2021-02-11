@@ -40,6 +40,8 @@ jobs:
       run: python setup.py install
     - name: Install pytest
       run: pip install pytest
+    - name: Wait for Samba
+      run: python ./wait_port.py --port ${{ job.services.samba.ports[445] }}
     - name: Run Pike
       run: python -m unittest -v pike.test.samba_suite
       env:
