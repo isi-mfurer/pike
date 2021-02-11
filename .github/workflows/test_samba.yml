@@ -49,3 +49,4 @@ jobs:
         PIKE_PORT: ${{ job.services.samba.ports[445] }}
         PIKE_SHARE: pike
         PIKE_CREDS: pike%GiThubCI123
+        PIKE_LOGLEVEL: DEBUG
