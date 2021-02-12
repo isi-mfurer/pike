@@ -58,6 +58,7 @@ from . import digest
 
 default_credit_request = 10
 default_timeout = 30
+default_port = 445
 trace = False
 
 def loop(timeout=None, count=None):
@@ -400,7 +401,7 @@ class Client(object):
         self.dialects = [d for d in self.dialects
                          if min_dialect <= d <= max_dialect]
 
-    def connect(self, server, port=445):
+    def connect(self, server, port=default_port):
         """
         Create a connection.
 
@@ -411,7 +412,7 @@ class Client(object):
         """
         return self.connect_submit(server, port).result()
 
-    def connect_submit(self, server, port=445):
+    def connect_submit(self, server, port=default_port):
         """
         Create a connection.
 
@@ -541,7 +542,7 @@ class Connection(transport.Transport):
     @ivar server: The server name or address
     @ivar port: The server port
     """
-    def __init__(self, client, server, port=445):
+    def __init__(self, client, server, port=default_port):
         """
         Constructor.
 
@@ -664,7 +665,7 @@ class Connection(transport.Transport):
     @property
     def hostname(self):
         port = ""
-        if self.port != 445:
+        if self.port != default_port:
             port = ":{}".format(self.port)
         return self.server + port
 
