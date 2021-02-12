@@ -2,12 +2,14 @@
 pike.path - Path-like interface for working with a Tree object
 """
 
+import datetime
 import io
 import os
 from pathlib import PureWindowsPath, _WindowsFlavour
 
 from . import model
 from . import ntstatus
+from . import nttime
 from . import smb2
 
 
@@ -195,6 +197,9 @@ class PikePath(PureWindowsPath):
         for item in self.glob("*"):
             yield item
 
+    def link_to(self, target):
+        raise NotImplementedError("hardlinks are not supported over SMB")
+
     def mkdir(self, mode=None, parents=False, exist_ok=False):
         if mode is not None:
             warnings.warn("`mode` argument is not handled at this time", stacklevel=2)
@@ -317,6 +322,31 @@ class PikePath(PureWindowsPath):
             otherpath = self.join_from_root(otherpath)
         other_id = otherpath.stat(file_information_class=smb2.FILE_INTERNAL_INFORMATION)
         return my_id == other_id
+
+    def symlink_to(self, target, target_is_directory=False):
+        if not isinstance(target, type(self)):
+            target = self.join_from_root(target)
+        options = smb2.FILE_DIRECTORY_FILE if target_is_directory else 0
+        with self._channel.create(
+            self._tree,
+            self._path,
+            access=smb2.GENERIC_WRITE,
+            disposition=smb2.FILE_SUPERSEDE,
+            options=options | smb2.FILE_OPEN_REPARSE_POINT,
+        ).result() as handle:
+            handle.set_symlink(target._path)
+
+    def touch(self, mode, exist_ok=True):
+        disposition = smb2.FILE_OPEN_IF if exist_ok else smb2.FILE_CREATE
+        with self._channel.create(
+            self._tree,
+            self._path,
+            access=smb2.GENERIC_WRITE,
+            disposition=disposition,
+            options=smb2.FILE_NON_DIRECTORY_FILE,
+        ).result() as handle:
+            with self.set_file_info(smb2.FileBasicInformation) as file_info:
+                file_info.change_time = nttime.NtTime(datetime.datetime.now())
 
     def unlink(self, missing_ok=False, options=smb2.FILE_NON_DIRECTORY_FILE):
         try:
