@@ -1787,7 +1787,7 @@ class Channel(object):
             warnings.warn("buffer must be bytes, got {!r}, casting as str and encoding "
                           "with 'ascii'".format(type(buffer)), UnicodeWarning)
             buffer = buffer.encode("ascii")
-        if buffer is not None and not isinstance(buffer, (array.array, bytes)):
+        if buffer is not None and not isinstance(buffer, (array.array, bytes, memoryview, bytearray)):
             raise TypeError(
                 "buffer must be a byte string or byte array, not {!r}".format(
                     type(buffer)))
