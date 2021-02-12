@@ -4,7 +4,8 @@ pike.path - Path-like interface for working with a Tree object
 
 import io
 from io import SEEK_CUR, SEEK_END, SEEK_SET
-from pathlib import PureWindowsPath
+import os
+from pathlib import PureWindowsPath, _WindowsFlavour
 
 from . import model
 from . import ntstatus
@@ -106,34 +107,63 @@ class PikeIO(io.RawIOBase):
         return bytes_written
 
 
+class _PikeFlavour(_WindowsFlavour):
+    def casefold(self, s):
+        if isinstance(s, model.Tree):
+            s = os.fspath(s)
+        return s.lower()
+
+    def casefold_parts(self, parts):
+        return [
+            p.lower()
+            for p in [
+                os.fspath(rp) if isinstance(rp, model.Tree) else rp for rp in parts
+            ]
+        ]
+
+
+_pike_flavour = _PikeFlavour()
+
+
 class PikePath(PureWindowsPath):
-    def __new__(cls, channel, tree, *path_components):
-        p = PureWindowsPath.__new__(PikePath, *path_components)
-        p._channel = channel
-        p._tree = tree
-        return p
+    _flavour = _pike_flavour
 
-    def _from_parsed_parts(self, *args, **kwargs):
+    @classmethod
+    def _parse_args(cls, args):
         """
-        Override _from_parsed_parts to carry _channel and _tree when extending.
+        Override _parse_args to ensure a Tree is returned as drv
+        """
+        drv, root, parts = super(PikePath, cls)._parse_args(args)
+        if args:
+            if isinstance(args[0], model.Tree):
+                drv = args[0]
+            if isinstance(args[0], cls):
+                drv = args[0]._drv
+        return drv, root, parts
 
-        This is a classmethod in the parent, but we'll override it as an
-        instance method, because it's not called in the class context and we
-        need to carry instance variables.
-        """
-        if not isinstance(self, PikePath):
-            raise NotImplementedError(
-                "Cannot extend from non-instance: {!r}".format(self)
-            )
-        new_path = super(PikePath, self)._from_parsed_parts(*args, **kwargs)
-        # carry the channel and tree when joining paths
-        new_path._channel = self._channel
-        new_path._tree = self._tree
-        return new_path
+    @property
+    def _channel(self):
+        return self._drv.session.first_channel()
+
+    @property
+    def _tree(self):
+        return self._drv
 
     @property
     def _path(self):
-        return str(self).lstrip("\\")
+        if self._drv or self._root:
+            return self._flavour.join(self._parts[1:])
+        return str(self)
+
+    def join_from_root(self, path):
+        """
+        Return a new PikePath by joining `path` to the root of this PikePath.
+
+        Used to rehome an existing absolute path for use by this PikePath's Tree.
+        """
+        if path._drv or path._root:
+            return self.joinpath(*path._parts[1:])
+        return self / path
 
     @classmethod
     def cwd(cls):
