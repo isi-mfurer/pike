@@ -3,108 +3,12 @@ pike.path - Path-like interface for working with a Tree object
 """
 
 import io
-from io import SEEK_CUR, SEEK_END, SEEK_SET
 import os
 from pathlib import PureWindowsPath, _WindowsFlavour
 
 from . import model
 from . import ntstatus
 from . import smb2
-
-
-BYTES_PER_CREDIT = 64 * 1024
-
-
-class PikeIO(io.RawIOBase):
-    def __init__(self, path, handle, mode):
-        self._channel = path._channel
-        self._tree = path._tree
-        self._offset = 0
-        self._handle = handle
-        self._mode = mode
-
-    def close(self):
-        self._handle.close()
-
-    @property
-    def closed(self):
-        return self._handle.tree is None
-
-    @property
-    def end_of_file(self):
-        return self._handle.create_response.end_of_file
-
-    def seek(self, offset, whence=SEEK_SET):
-        if whence == SEEK_SET:
-            self._offset = offset
-        elif whence == SEEK_CUR:
-            self._offset += offset
-        elif whence == SEEK_END:
-            self._offset = self.end_of_file + offset
-        return self._offset
-
-    def seekable(self):
-        return True
-
-    def tell(self):
-        return self._offset
-
-    def truncate(self, size=None):
-        raise NotImplementedError("truncate() not supported")
-
-    def _read_range(self, start=0, end=None):
-        offset = start
-        if end is None:
-            end = self.end_of_file
-        response_buffers = []
-        while offset < end:
-            available = min(
-                self._channel.connection.credits * BYTES_PER_CREDIT,
-                self._channel.connection.negotiate_response.max_read_size,
-            )
-            try:
-                read_resp = self._channel.read(self._handle, available, offset)
-                response_buffers.append(read_resp)
-                offset += len(read_resp)
-            except model.ResponseError as re:
-                if re.response.status == ntstatus.STATUS_END_OF_FILE:
-                    return ""
-                raise
-        return b"".join(rb.tobytes() for rb in response_buffers)
-
-    def readable(self):
-        return "r" in self._mode.lower() or "+" in self._mode
-
-    def readall(self):
-        return self._read_range(self._offset)
-
-    def readinto(self, b):
-        read_resp = self._read_range(self._offset, len(b))
-        bytes_read = len(read_resp)
-        self._offset += bytes_read
-        b[:bytes_read] = read_resp
-        return bytes_read
-
-    def _write_at(self, data, offset):
-        n_data = len(data)
-        bytes_written = 0
-        while bytes_written < n_data:
-            available = min(
-                self._channel.connection.credits * BYTES_PER_CREDIT,
-                self._channel.connection.negotiate_response.max_write_size,
-            )
-            chunk = data[offset + bytes_written : offset + bytes_written + available]
-            count = self._channel.write(self._handle, offset + bytes_written, chunk)
-            bytes_written += count
-        return bytes_written
-
-    def writable(self):
-        return "w" in self._mode.lower() or "+" in self._mode
-
-    def write(self, b):
-        bytes_written = self._write_at(b, self._offset)
-        self._offset += bytes_written
-        return bytes_written
 
 
 class _PikeFlavour(_WindowsFlavour):
@@ -322,14 +226,13 @@ class PikePath(PureWindowsPath):
             disposition=disposition,
             options=smb2.FILE_NON_DIRECTORY_FILE,
         ).result()
-        raw_io = PikeIO(self, handle, mode)
         if "a" in mode:
-            raw_io.seek(0, SEEK_END)
+            handle.seek(0, SEEK_END)
         if "b" in mode and buffering == 0:
-            return raw_io
+            return handle
         if buffering == -1:
-            buffer_size = BYTES_PER_CREDIT
-        buffered_io = buffer_class(raw_io, buffer_size=buffer_size)
+            buffer_size = smb2.BYTES_PER_CREDIT
+        buffered_io = buffer_class(handle, buffer_size=buffer_size)
         if "b" in mode:
             return buffered_io
         return io.TextIOWrapper(
