@@ -2109,6 +2109,14 @@ class Tree(object):
             self.encrypt_data = True
         self.session._trees[self.tree_id] = self
 
+    @property
+    def pathlike(self):
+        from . import path
+        return path.PikePath(
+            channel=self.session.first_channel(),
+            tree=self,
+        )
+
 class Open(object):
     def __init__(self, tree, smb_res, create_guid=None, prev=None):
         self.create_response = smb_res[0]
