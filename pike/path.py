@@ -1,5 +1,5 @@
 """
-pike.path - Path-like interface for working with a Tree object
+Path-like interface for working with a Tree object
 """
 
 import datetime
@@ -17,6 +17,11 @@ MAX_SYMLINK_RECURSE = 10
 
 
 class _PikeFlavour(_WindowsFlavour):
+    """
+    Implement pike-specific overrides of WindowsFlavour semantics.
+
+    Handle the fact that ``_drv`` may be a ``pike.model.Tree`` instance.
+    """
     def casefold(self, s):
         if isinstance(s, model.Tree):
             s = os.fspath(s)
@@ -35,6 +40,46 @@ _pike_flavour = _PikeFlavour()
 
 
 class PikePath(PureWindowsPath):
+    """
+    ``Path`` subclass for ``pike.model.Tree`` instances.
+
+    ``PikePath`` should be either directly instantiated by passing a ``Tree``
+    or by performing typical ``Path`` extension (truediv) on a ``Tree`` or
+    ``pike.test.TreeConnect`` instance.
+
+    .. code-block:: python
+        :caption: example.py
+
+        import pike.path
+        import pike.test
+
+        with pike.TreeConnect() as tc:
+            pth = pike.path.PikePath(tc.tree)
+            assert (tc / "subdir") == (pth / "subdir")
+            assert (tc.tree / "subdir") == (pth / "subdir")
+
+    A ``PikePath`` is bound to a specific connection, session, tree. If the
+    underlying transport is no longer valid, then the path operations will not
+    work.
+
+    An existing path, valid or invalid, and be "rehomed" to a different
+    ``PikePath`` by calling ``join_from_root``, returning a new instance with
+    the path part replaced by that of the passed argument.
+
+    .. code-block:: python
+        :caption: example.py
+
+        import pike
+        import pike.path
+
+        with pike.TreeConnect(), pike.TreeConnect() as tc1, tc2:
+            tc1_subdir = tc1 / "subdir"
+            tc2_subdir = pike.path.PikePath(tc2.tree).join_from_root(tc1_subdir)
+            assert tc1_subdir != tc2_subdir
+
+    Unlike ``WindowsPath``, ``PikePath`` will prefer to raise
+    ``pike.model.ResponseError`` exceptions instead of ``OSError``.
+    """
     _flavour = _pike_flavour
 
     @classmethod
@@ -52,23 +97,36 @@ class PikePath(PureWindowsPath):
 
     @property
     def _channel(self):
+        """
+        :rtype: pike.model.Channel
+        :return: Channel bound to the associated tree
+        """
         return self._drv.session.first_channel()
 
     @property
     def _tree(self):
+        """
+        :rtype: pike.model.Tree
+        :return: Tree forming the root of the share / path
+        """
         return self._drv
 
     @property
     def _path(self):
+        """
+        :rtype: str
+        :return: SMB path relative to the root
+        """
         if self._drv or self._root:
             return self._flavour.join(self._parts[1:])
         return str(self)
 
     def join_from_root(self, path):
         """
-        Return a new PikePath by joining `path` to the root of this PikePath.
+        Rehome an existing absolute path for use by this PikePath's Tree.
 
-        Used to rehome an existing absolute path for use by this PikePath's Tree.
+        :rtype: PikePath
+        :return: a new PikePath by joining `path` to the root of this PikePath.
         """
         if isinstance(path, type(self)) and (path.is_absolute()):
             return self.joinpath(*path._parts[1:])
@@ -85,6 +143,14 @@ class PikePath(PureWindowsPath):
         raise NotImplementedError("No concept of home for {!r}".format(cls))
 
     def _create_follow(self, *args, **kwargs):
+        """
+        Call Channel.create with this Tree and path following symlinks.
+
+        Special kwarg, __RC_DEPTH, is used to track the recursion depth and
+        will raise OSError if called more than MAX_SYMLINK_RECURSE times.
+
+        Remaining args and kwargs are passed to create directly.
+        """
         depth = kwargs.pop("__RC_DEPTH", 0)
         if depth > MAX_SYMLINK_RECURSE:
             raise OSError("Maximum level of symbolic links exceeded")
@@ -102,6 +168,19 @@ class PikePath(PureWindowsPath):
         info_type=smb2.SMB2_0_INFO_FILE,
         options=0,
     ):
+        """
+        Perform SMB2 QUERY_INFO request for the given ``file_information_class``.
+
+        :type file_information_class: smb2.FileInformationClass
+        :param file_information_class: the file information class constant
+            describing the type of information to retrieve
+        :type info_type: smb2.InfoType
+        :param info_type: the SMB2 query info type
+        :type options: smb2.CreateOptions
+        :param options: options passed to CREATE when opening the file
+        :return: single file info object corresponding to the
+            file_information_class requested
+        """
         with self._create_follow(
             access=smb2.FILE_READ_ATTRIBUTES,
             disposition=smb2.FILE_OPEN,
@@ -117,6 +196,22 @@ class PikePath(PureWindowsPath):
         info_type=smb2.SMB2_0_INFO_FILE,
         options=0,
     ):
+        """
+        Perform SMB2 QUERY_INFO request for the given ``file_information_class``.
+
+        If this path represents a symlink, open the link itself, rather than the
+        target. (Intermediate links will not be followed first.)
+
+        :type file_information_class: smb2.FileInformationClass
+        :param file_information_class: the file information class constant
+            describing the type of information to retrieve
+        :type info_type: smb2.InfoType
+        :param info_type: the SMB2 query info type
+        :type options: smb2.CreateOptions
+        :param options: options passed to CREATE when opening the file
+        :return: single file info object corresponding to the
+            file_information_class requested
+        """
         options = options | smb2.FILE_OPEN_REPARSE_POINT
         return self.stat(
             file_information_class=file_information_class,
@@ -130,6 +225,9 @@ class PikePath(PureWindowsPath):
     lchmod = chmod
 
     def exists(self, options=0):
+        """
+        :return: True if this path exists
+        """
         try:
             with self._create_follow(
                 access=0,
@@ -155,30 +253,80 @@ class PikePath(PureWindowsPath):
         raise NotImplementedError("group() is not supported")
 
     def is_dir(self):
+        """
+        :return: True if this path is a directory
+        """
         return self.exists(options=smb2.FILE_DIRECTORY_FILE)
 
     def is_file(self):
+        """
+        :return: True if this path is a normal file
+        """
         return self.exists(options=smb2.FILE_NON_DIRECTORY_FILE)
 
     def is_symlink(self):
+        """
+        :return: True if this path is a reparse point
+        """
         return self.exists(options=smb2.FILE_OPEN_REPARSE_POINT)
 
     def is_mount(self):
+        """
+        Note: all PikePath instances are considered to be mounts
+
+        :return: True if this path is a mount point
+        """
         return True  # all paths are on SMB mount
 
     def is_socket(self):
+        """
+        Note: no PikePath instances are considered to be sockets
+
+        :return: True if this path is a socket
+        """
         return False
 
     def is_fifo(self):
+        """
+        Note: no PikePath instances are considered to be fifo
+
+        :return: True if this path is a pipe
+        """
         return False  # might be supported some day
 
     def is_block_device(self):
+        """
+        Note: no PikePath instances are considered to be block devices
+
+        :return: True if this path is a block device
+        """
         return False
 
     def is_char_device(self):
+        """
+        Note: no PikePath instances are considered to be char devices
+
+        :return: True if this path is a char device
+        """
         return False
 
     def glob(self, pattern):
+        """
+        Iterate over this subtree and yield all existing files matching pattern.
+
+        Files of any kind, including directories, that match the given relative
+        pattern will be yielded with the exception of special entries "." and ".."
+
+        The globbing is handled on the server side, so all ``pattern`` values
+        must be valid according to [MS-CIFS] 2.2.1.1.3 Wildcards:
+        https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-cifs/dc92d939-ec45-40c8-96e5-4c4091e4ab43
+
+        The recursive glob "**" is not supported.
+
+        :param pattern: file search pattern
+        """
+        if "**" in pattern:
+            raise ValueError("recursive glob, '**', is not supported by {!r}".format(type(self)))
         with self._create_follow(
             access=smb2.GENERIC_READ,
             disposition=smb2.FILE_OPEN,
@@ -190,6 +338,12 @@ class PikePath(PureWindowsPath):
                 yield self / item.file_name
 
     def iterdir(self):
+        """
+        Iterate over this subtree and yield all existing files.
+
+        The special entries "." and ".." will not be yielded.
+        """
+
         for item in self.glob("*"):
             yield item
 
@@ -197,6 +351,13 @@ class PikePath(PureWindowsPath):
         raise NotImplementedError("hardlinks are not supported over SMB")
 
     def mkdir(self, mode=None, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+
+        :param mode: The mode of the created file. NOT SUPPORTED
+        :param parents: if True, create all parent directories if they do not exist
+        :param exist_ok: if True, don't raise if the directory exists
+        """
         if mode is not None:
             warnings.warn("`mode` argument is not handled at this time", stacklevel=2)
         try:
@@ -216,7 +377,13 @@ class PikePath(PureWindowsPath):
 
     def open(self, mode="r", buffering=-1, encoding=None, errors=None, newline=None):
         """
-        Open a file-like with immediate IO via pike
+        Open the file pointed by this path and return a file object, as
+        the built-in open() function does.
+
+        Where possible, the semantics are designed to match a local open file.
+
+        Lease/oplock based buffering is not supported at this time. To avoid
+        reading stale data, or locally buffering writes, pass ``buffering=0``.
         """
         buffer_class = io.BufferedReader
         access = 0
@@ -268,6 +435,9 @@ class PikePath(PureWindowsPath):
             return f.read()
 
     def readlink(self):
+        """
+        Return the ``PikePath`` to which the symbolic link points.
+        """
         with self._create_follow(
             access=smb2.READ_ATTRIBUTES,
             disposition=smb2.FILE_OPEN,
@@ -278,6 +448,14 @@ class PikePath(PureWindowsPath):
             return self.join_from_root(handle.get_symlink()[0].substitute_name)
 
     def rename(self, target, replace=True):
+        """
+        Rename the object at this path to ``target``.
+
+        :param target: new name
+        :param replace: if True, pass ``replace_if_exists`` in ``FileRenameInformation``
+        :rtype: PikePath
+        :return: path pointing to target
+        """
         if not isinstance(target, type(self)):
             target = self.join_from_root(target)
         with self._create_follow(
@@ -290,9 +468,20 @@ class PikePath(PureWindowsPath):
             return target
 
     def replace(self, target):
+        """
+        Same as rename, but with replace=True
+        """
         return self.rename(target, replace=True)
 
     def resolve(self, strict=True):
+        """
+        Follow all symbolic links in the path and the ``PikePath`` at the end of
+        the chain.
+
+        Similar to ``readlink``, however this calls relies on handling the
+        SymbolicLinkErrorResponse during create, rather than explicitly
+        reading the link target via IOCTL_GET_REPARSE_POINT.
+        """
         with self._create_follow(access=0, disposition=smb2.FILE_OPEN) as handle:
             return self.join_from_root(handle.create_request.name)
 
@@ -300,9 +489,26 @@ class PikePath(PureWindowsPath):
         raise NotImplementedError("rglob is not supported by {!r}".format(type(self)))
 
     def rmdir(self, missing_ok=False):
+        """
+        Remove the directory at this path.
+
+        The directory must be empty.
+
+        :param missing_ok: if True, don't raise if the directory doesn't exist
+        """
         self.unlink(missing_ok=missing_ok, options=smb2.FILE_DIRECTORY_FILE)
 
     def samefile(self, otherpath):
+        """
+        Determine if this path points to the same file as another path.
+
+        This uses ``FILE_INTERNAL_INFORMATION`` to perform the check. If the
+        server doesn't support this info class, NotImplementedError is raised.
+
+        :type otherpath: PikePath
+        :param otherpath: the other path to compare to
+        :return: True if otherpath points to the same file
+        """
         my_id = self.stat(file_information_class=smb2.FILE_INTERNAL_INFORMATION)
         if my_id == 0:
             raise NotImplementedError("remote filesystem does not return unique file index")
@@ -312,6 +518,17 @@ class PikePath(PureWindowsPath):
         return my_id == other_id
 
     def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the given path.
+
+        Note the order of arguments (self, target) is the reverse of os.symlink's.
+
+        Does not currently work for absolute links.
+
+        :type target: PikePath
+        :param target: The link's target
+        :param target_is_directory: must be True if the target is a directory
+        """
         if not isinstance(target, type(self)):
             target = self.join_from_root(target)
         options = smb2.FILE_DIRECTORY_FILE if target_is_directory else 0
@@ -323,7 +540,15 @@ class PikePath(PureWindowsPath):
         ) as handle:
             handle.set_symlink(target._path, flags=smb2.SYMLINK_FLAG_RELATIVE)
 
-    def touch(self, mode, exist_ok=True):
+    def touch(self, mode=None, exist_ok=True):
+        """
+        Create a new file or update modification time at this given path.
+
+        :param mode: The mode of the created file. NOT SUPPORTED
+        :param exist_ok: if True, don't raise if the file exists
+        """
+        if mode is not None:
+            warnings.warn("`mode` argument is not handled at this time", stacklevel=2)
         disposition = smb2.FILE_OPEN_IF if exist_ok else smb2.FILE_CREATE
         with self._create_follow(
             access=smb2.GENERIC_WRITE,
@@ -334,6 +559,12 @@ class PikePath(PureWindowsPath):
                 file_info.change_time = nttime.NtTime(datetime.datetime.now())
 
     def unlink(self, missing_ok=False, options=smb2.FILE_NON_DIRECTORY_FILE):
+        """
+        Remove the file at this path.
+
+        :param missing_ok: if True, don't raise if the file doesn't exist
+        :param options: options passed to CREATE when opening the file
+        """
         try:
             with self._create_follow(
                 access=smb2.DELETE,
