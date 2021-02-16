@@ -20,7 +20,7 @@ class _PikeFlavour(_WindowsFlavour):
     """
     Implement pike-specific overrides of WindowsFlavour semantics.
 
-    Handle the fact that ``_drv`` may be a ``pike.model.Tree`` instance.
+    Handle the fact that ``_drv`` may be a :py:class:`pike.model.Tree` instance.
     """
     def casefold(self, s):
         if isinstance(s, model.Tree):
@@ -41,11 +41,12 @@ _pike_flavour = _PikeFlavour()
 
 class PikePath(PureWindowsPath):
     """
-    ``Path`` subclass for ``pike.model.Tree`` instances.
+    ``Path`` subclass for :py:class:`pike.model.Tree` instances.
 
-    ``PikePath`` should be either directly instantiated by passing a ``Tree``
-    or by performing typical ``Path`` extension (truediv) on a ``Tree`` or
-    ``pike.test.TreeConnect`` instance.
+    ``PikePath`` should be either directly instantiated by passing a
+    :py:class:`~pike.model.Tree` or by performing typical ``Path`` extension
+    (truediv) on a :py:class:`~pike.model.Tree` or
+    :py:class:`pike.TreeConnect` instance.
 
     .. code-block:: python
         :caption: example.py
@@ -58,13 +59,14 @@ class PikePath(PureWindowsPath):
             assert (tc / "subdir") == (pth / "subdir")
             assert (tc.tree / "subdir") == (pth / "subdir")
 
-    A ``PikePath`` is bound to a specific connection, session, tree. If the
+    A ``PikePath`` is bound to a specific connection, session, and tree. If the
     underlying transport is no longer valid, then the path operations will not
     work.
 
     An existing path, valid or invalid, and be "rehomed" to a different
-    ``PikePath`` by calling ``join_from_root``, returning a new instance with
-    the path part replaced by that of the passed argument.
+    ``PikePath`` by calling :py:func:`~pike.path.PikePath.join_from_root`,
+    returning a new instance with the path part replaced by that of the passed
+    argument.
 
     .. code-block:: python
         :caption: example.py
@@ -78,7 +80,7 @@ class PikePath(PureWindowsPath):
             assert tc1_subdir != tc2_subdir
 
     Unlike ``WindowsPath``, ``PikePath`` will prefer to raise
-    ``pike.model.ResponseError`` exceptions instead of ``OSError``.
+    :py:class:`pike.model.ResponseError` exceptions instead of ``OSError``.
     """
     _flavour = _pike_flavour
 
@@ -126,7 +128,8 @@ class PikePath(PureWindowsPath):
         Rehome an existing absolute path for use by this PikePath's Tree.
 
         :rtype: PikePath
-        :return: a new PikePath by joining `path` to the root of this PikePath.
+        :return: a new :py:class:`~pike.path.PikePath` by joining ``path`` to
+            the root of this instance.
         """
         if isinstance(path, type(self)) and (path.is_absolute()):
             return self.joinpath(*path._parts[1:])
@@ -226,6 +229,8 @@ class PikePath(PureWindowsPath):
 
     def exists(self, options=0):
         """
+        :type options: smb2.CreateOptions
+        :param options: options passed to CREATE when opening the file
         :return: True if this path exists
         """
         try:
@@ -245,9 +250,6 @@ class PikePath(PureWindowsPath):
 
     def expanduser(self):
         raise NotImplementedError("expanduser() is not supported")
-
-    def glob(self, pattern):
-        raise NotImplementedError("glob() is not supported")
 
     def group(self):
         raise NotImplementedError("group() is not supported")
@@ -324,6 +326,7 @@ class PikePath(PureWindowsPath):
         The recursive glob "**" is not supported.
 
         :param pattern: file search pattern
+        :rtype: Iterator[:py:class:`~pike.path.PikePath`]
         """
         if "**" in pattern:
             raise ValueError("recursive glob, '**', is not supported by {!r}".format(type(self)))
@@ -342,6 +345,8 @@ class PikePath(PureWindowsPath):
         Iterate over this subtree and yield all existing files.
 
         The special entries "." and ".." will not be yielded.
+
+        :rtype: Iterator[:py:class:`~pike.path.PikePath`]
         """
 
         for item in self.glob("*"):
@@ -423,6 +428,8 @@ class PikePath(PureWindowsPath):
     def read_bytes(self):
         """
         Return the binary contents of the pointed-to file as a bytes object.
+
+        :rtype: bytes
         """
         with self.open("rb") as f:
             return f.read()
@@ -430,13 +437,17 @@ class PikePath(PureWindowsPath):
     def read_text(self, encoding=None, errors=None):
         """
         Return the decoded contents of the pointed-to file as a string.
+
+        :rtype: str
         """
         with self.open("r") as f:
             return f.read()
 
     def readlink(self):
         """
-        Return the ``PikePath`` to which the symbolic link points.
+        Return the :py:class:`~pike.path.PikePath` to which the symbolic link points.
+
+        :rtype: PikePath
         """
         with self._create_follow(
             access=smb2.READ_ATTRIBUTES,
@@ -475,8 +486,8 @@ class PikePath(PureWindowsPath):
 
     def resolve(self, strict=True):
         """
-        Follow all symbolic links in the path and the ``PikePath`` at the end of
-        the chain.
+        Follow all symbolic links in the path and return the
+        :py:class:`~pike.path.PikePath` at the end of the chain.
 
         Similar to ``readlink``, however this calls relies on handling the
         SymbolicLinkErrorResponse during create, rather than explicitly
@@ -523,7 +534,7 @@ class PikePath(PureWindowsPath):
 
         Note the order of arguments (self, target) is the reverse of os.symlink's.
 
-        Does not currently work for absolute links.
+        Does not work for absolute links.
 
         :type target: PikePath
         :param target: The link's target
@@ -592,13 +603,23 @@ class PikePath(PureWindowsPath):
     def write_bytes(self, data):
         """
         Open the file pointed to in bytes mode, write data to it, and close the file.
+
+        :type data: bytes
+        :param data: bytes to write to the file
+        :rtype: int
+        :return: number of bytes written
         """
         with self.open("wb") as f:
             return f.write(data)
 
     def write_text(self, data, encoding=None, errors=None):
         """
-        Open the file pointed to in text mode, write data to it, and close the file
+        Open the file pointed to in text mode, write data to it, and close the file.
+
+        :type data: str
+        :param data: unicode string to write to the file
+        :rtype: int
+        :return: number of bytes written
         """
         with self.open("w") as f:
             return f.write(data)
