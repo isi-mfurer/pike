@@ -300,16 +300,14 @@ class Future(object):
 
 class Client(object):
     """
-    Client
-
     Maintains all state associated with an SMB2/3 client.
 
-    @type dialects: [number]
-    @ivar dialects: A list of supported dialects
-    @ivar capabilities: Capabilities flags
-    @ivar security_mode: Security mode flags
-    @ivar client_guid: Client GUID
-    @ivar channel_sequence: Current channel sequence number
+    :type dialects: Sequence[pike.smb2.Dialect]
+    :ivar dialects: A list of supported dialects
+    :ivar capabilities: Capabilities flags
+    :ivar security_mode: Security mode flags
+    :ivar client_guid: Client GUID
+    :ivar channel_sequence: Current channel sequence number
     """
     def __init__(self,
                  dialects=[smb2.DIALECT_SMB2_002,
@@ -320,17 +318,6 @@ class Client(object):
                  capabilities=smb2.GlobalCaps(reduce(operator.or_, smb2.GlobalCaps.values())),
                  security_mode=smb2.SMB2_NEGOTIATE_SIGNING_ENABLED,
                  client_guid=None):
-        """
-        Constructor.
-
-        @type dialects: [number]
-        @param dialects: A list of supported dialects.
-        @param capabilities: Client capabilities flags
-        @param security_mode: Client security mode flags
-        @param client_guid: Client GUID.  If None, a new one will be generated at random.
-        """
-        object.__init__(self)
-
         if client_guid is None:
             client_guid = array.array('B', map(random.randint, [0] * 16, [255] * 16))
 
@@ -492,7 +479,7 @@ class Client(object):
         """
         Wait for and return oplock break notification.
 
-        Equivalent to L{oplock_break_future}(file_id).result()
+        Equivalent to ``oplock_break_future(file_id).result()``
         """
 
         return self.oplock_break_future(file_id).result()
@@ -501,7 +488,7 @@ class Client(object):
         """
         Wait for and return lease break notification.
 
-        Equivalent to L{lease_break_future}(lease_key).result()
+        Equivalent to ``lease_break_future(file_id).result()``
         """
 
         return self.lease_break_future(lease_key).result()
@@ -540,10 +527,10 @@ class Connection(transport.Transport):
     Represents a connection to a server and handles all socket operations
     and request/response dispatch.
 
-    @type client: Client
-    @ivar client: The Client object associated with this connection.
-    @ivar server: The server name or address
-    @ivar port: The server port
+    :type client: Client
+    :ivar client: The Client object associated with this connection.
+    :ivar server: The server name or address
+    :ivar port: The server port
     """
     def __init__(self, client, server, port=default_port):
         """
@@ -1002,7 +989,7 @@ class Connection(transport.Transport):
         Perform dialect negotiation.
 
         This must be performed before setting up a session with
-        L{Connection.session_setup}().
+        :py:func:`Connection.session_setup`.
         """
         self.negotiate_submit(
                 self.negotiate_request(
