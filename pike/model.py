@@ -126,6 +126,9 @@ class CallbackError(Exception):
     """
 
 class ResponseError(Exception):
+    """
+    Raised when an Smb2 response contains an unexpected NTSTATUS.
+    """
     def __init__(self, response):
         Exception.__init__(self, response.command, response.status)
         self.response = response
@@ -1267,6 +1270,11 @@ class Connection(transport.Transport):
             return None
 
 class Session(object):
+    """
+    Represents an SMB2 session.
+
+    May contain one or more active channels (connections) or trees
+    """
     def __init__(self, client, session_id, session_key,
                  encryption_context, smb_res):
         object.__init__(self)
@@ -1299,6 +1307,13 @@ class Session(object):
         return self._trees.get(tree_id, None)
 
 class Channel(object):
+    """
+    SMB2 communication channel associated with an underlying
+    :py:class:`Connection` and :py:class:`Session`.
+
+    All post-authentication protocol commands have blocking and non-blocking
+    helper methods defined in this class.
+    """
     def __init__(self, connection, session, signing_key):
         object.__init__(self)
         self.connection = connection
@@ -2039,8 +2054,8 @@ class Channel(object):
     def lease_break_acknowledgement(self, tree, notify):
         """
         @param tree: L{Tree} which the lease is taken against
-        @param notify: L{Smb2} frame containing a LeaseBreakRequest
-        return a LeaseBreakAcknowledgement with some fields pre-populated
+        @param notify: L{Smb2} frame containing a L{LeaseBreakRequest}
+        @return: a L{LeaseBreakAcknowledgement} with some fields pre-populated
         """
         lease_break = notify[0]
         smb_req = self.request(obj=tree)
@@ -2052,8 +2067,8 @@ class Channel(object):
     def oplock_break_acknowledgement(self, fh, notify):
         """
         @param fh: Acknowledge break on this L{Open}
-        @param notify: L{Smb2} frame containing a OplockBreakRequest
-        return a OplockBreakAcknowledgement with some fields pre-populated
+        @param notify: L{Smb2} frame containing a L{OplockBreakRequest}
+        @return: an L{OplockBreakAcknowledgement} with some fields pre-populated
         """
         oplock_break = notify[0]
         smb_req = self.request(obj=fh)
@@ -2097,6 +2112,16 @@ class Channel(object):
         return self.connection.let(**kwargs)
 
 class Tree(object):
+    """
+    An SMB2 Tree object is associated with a :py:class:`Session`.
+
+    A Tree can be used as a contextmanager to automatically call
+    :py:func:`~Channel.tree_disconnect` after exiting the context block.
+
+    Using the division operator (``/``) against a :py:class:`Tree` returns a
+    :py:class:`~pike.path.PikePath` that can be used to perform ``Path``
+    operations on the share
+    """
     def __init__(self, session, path, smb_res):
         object.__init__(self)
         self.session = session
@@ -2153,6 +2178,10 @@ class RelatedOpen(object):
 
 
 class Lease(object):
+    """
+    SMB2 Lease state attached to a :py:class:`~pike.io.Open` with an active lease.
+    """
+
     def __init__(self, tree):
         self.tree = tree
         self.refs = 1
