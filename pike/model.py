@@ -519,7 +519,7 @@ class Connection(transport.Transport):
     @ivar port: The server port
     """
 
-    def __init__(self, client, server, port=default_port):
+    def __init__(self, client, server, port=default_port, protocol=None):
         """
         Constructor.
 
@@ -527,6 +527,7 @@ class Connection(transport.Transport):
         use L{Client.connect}().
         """
         super(Connection, self).__init__()
+        self._protocol = protocol
         self._no_delay = True
         self._in_buffer = array.array("B")
         self._watermark = 4
@@ -555,13 +556,14 @@ class Connection(transport.Transport):
         self.error = None
         self.traceback = None
 
-        for result in socket.getaddrinfo(
-            server, port, 0, socket.SOCK_STREAM, socket.IPPROTO_TCP
-        ):
-            family, socktype, proto, canonname, sockaddr = result
-            break
-        self.create_socket(family, socktype)
-        self.connect(sockaddr)
+        if self._protocol is None:
+            for result in socket.getaddrinfo(
+                server, port, 0, socket.SOCK_STREAM, socket.IPPROTO_TCP
+            ):
+                family, socktype, proto, canonname, sockaddr = result
+                break
+            self.create_socket(family, socktype)
+            self.connect(sockaddr)
 
     @contextlib.contextmanager
     def callback(self, event, cb):
@@ -703,6 +705,9 @@ class Connection(transport.Transport):
             self._dispatch_incoming(nb)
 
     def handle_write(self):
+        while self._protocol is not None and self._out_queue:
+            # new style output
+            self._protocol.send(self._prepare_outgoing())
         # Try to write out more data
         while self._out_buffer is None and len(self._out_queue):
             self._out_buffer = self._prepare_outgoing()
