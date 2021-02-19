@@ -24,6 +24,7 @@ from . import smb2
 class Netbios(core.Frame):
     LOG_CHILDREN_COUNT = False
     LOG_CHILDREN_EXPAND = True
+    HEADER_LENGTH = 4
 
     def __init__(self, context=None):
         core.Frame.__init__(self, None, context)
